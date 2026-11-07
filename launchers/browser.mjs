@@ -1,0 +1,11 @@
+import {readFileSync,realpathSync} from 'node:fs';
+import {spawn,execFileSync} from 'node:child_process';
+import os from 'node:os';
+const mcp=new URL('../playwright/',import.meta.url).pathname.replace(/\/$/,'');
+const env={...process.env,TMPDIR:mcp+'/.cache/tmp/',PWTEST_SOCKETS_DIR:mcp+'/.s'};
+const args=[mcp+'/node_modules/@playwright/mcp/cli.js', '--host','127.0.0.1','--port','8931','--cdp-endpoint','chrome','--shared-browser-context','--caps','vision,devtools','--block-service-workers','--no-webmcp','--output-dir',mcp+'/artifacts/shared','--timeout-navigation','45000'];
+console.log('Playwright CDP connecting to existing personal Chrome on 127.0.0.1:8931 (shared)');
+const child=spawn(process.execPath,args,{cwd:mcp,env,stdio:'inherit'});
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>child.kill(signal));
+child.on('error',e=>{console.error('Browser launch failed:',e.code);process.exit(1);});
+child.on('exit',(code,signal)=>process.exit(code??(signal?1:0)));

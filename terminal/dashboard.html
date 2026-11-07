@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChatTerminalHub — Терминалы чатов</title>
+<link rel="stylesheet" href="/dashboard.css">
+<script defer src="/dashboard.js"></script>
+</head>
+<body>
+<div class="shell">
+<header class="top">
+  <div class="brand"><span class="symbol">⌘</span><div><h1>ChatTerminalHub</h1><p>Независимые терминалы ChatGPT · Mac</p></div></div>
+  <div class="state"><span id="dot" class="dot"></span><span id="connection">Подключаемся</span></div>
+</header>
+<section class="bar">
+  <nav id="tabs" class="tabs" aria-label="Терминальные сессии"></nav>
+  <button id="add" class="add">+ Новый терминал</button>
+</section>
+<main>
+  <div class="toolbar">
+    <div><strong id="title">Нет активного терминала</strong><span id="subtitle"></span></div>
+    <div class="actions">
+      <button id="copy">Копировать вывод</button>
+      <button id="interrupt" class="warn" title="Ctrl+C">■ Ctrl+C</button>
+      <button id="close" class="danger">Закрыть</button>
+    </div>
+  </div>
+  <pre id="screen" tabindex="0" role="log" aria-label="Вывод терминала"></pre>
+  <form id="commandForm" class="inputline">
+    <span class="prompt">❯</span>
+    <textarea id="command" rows="1" placeholder="Введите команду и нажмите Enter" aria-label="Команда"></textarea>
+    <button id="run" type="submit">Выполнить ↵</button>
+  </form>
+  <div class="hints"><span>Команды выполняются в настоящей оболочке zsh. Долгие задачи не блокируют другие вкладки.</span><span>Shift+Enter — перенос строки · Ctrl+C — прервать</span></div>
+</main>
+<footer>Работает только на 127.0.0.1. У каждой сессии собственный PTY и процесс.</footer>
+</div>
+<div id="auth" class="shade" hidden>
+  <form id="authForm" class="modal">
+    <h2>Ключ локальной панели</h2>
+    <p>Введите локальный административный ключ. Он хранится только в этой вкладке браузера. Чтобы показать ключ на Mac, выполните <code>~/Applications/ChatTerminalHub/show-key.sh</code>.</p>
+    <input type="password" id="key" autocomplete="off" placeholder="Ключ доступа" autofocus>
+    <div class="modalActions"><span id="authError"></span><button>Подключиться</button></div>
+  </form>
+</div>
+</body>
+</html>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="McpGo — infinity and play">
+<defs>
+  <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0C2549"/><stop offset=".52" stop-color="#101936"/><stop offset="1" stop-color="#261247"/></linearGradient>
+  <radialGradient id="halo" cx=".23" cy=".07" r=".95"><stop stop-color="#1E66A0" stop-opacity=".56"/><stop offset="1" stop-color="#10152E" stop-opacity="0"/></radialGradient>
+  <linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#20E8EE"/><stop offset=".47" stop-color="#5EADFF"/><stop offset="1" stop-color="#B65BFF"/></linearGradient>
+  <linearGradient id="play" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#DFFFFF"/><stop offset="1" stop-color="#A7ADFF"/></linearGradient>
+  <filter id="glow" x="-30%" y="-50%" width="160%" height="200%"><feGaussianBlur stdDeviation="25"/></filter>
+</defs>
+<rect x="74" y="74" width="876" height="876" rx="216" fill="url(#bg)"/>
+<rect x="74" y="74" width="876" height="876" rx="216" fill="url(#halo)"/>
+<rect x="75.5" y="75.5" width="873" height="873" rx="214" fill="none" stroke="#9BA9FF" stroke-opacity=".25" stroke-width="3"/>
+<path d="M 512 515 C 417 423 371 388 298 388 C 217 388 164 446 164 518 C 164 592 218 651 298 651 C 376 651 427 598 512 515 C 597 428 640 388 724 388 C 802 388 860 445 860 519 C 860 593 805 651 724 651 C 644 651 595 592 512 515" fill="none" stroke="#6D74FF" stroke-opacity=".42" stroke-width="102" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+<path d="M 512 515 C 417 423 371 388 298 388 C 217 388 164 446 164 518 C 164 592 218 651 298 651 C 376 651 427 598 512 515 C 597 428 640 388 724 388 C 802 388 860 445 860 519 C 860 593 805 651 724 651 C 644 651 595 592 512 515" fill="none" stroke="url(#ribbon)" stroke-width="80" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M 703 465 L 787 519 L 703 573 Z" fill="#111936" stroke="#151C47" stroke-width="26" stroke-linejoin="round"/>
+<path d="M 719 483 L 770 519 L 719 555 Z" fill="url(#play)" stroke="#D1EFFF" stroke-width="5" stroke-linejoin="round"/>
+</svg>

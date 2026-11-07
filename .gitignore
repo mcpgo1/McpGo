@@ -1,0 +1,82 @@
+# Build and generated binaries
+.DS_Store
+*.app/
+*.icns
+native/MCPHub
+native/MCPHub-*
+native/AppIcon.iconset/
+native/McpGoMark.png
+native/legacy/
+native/icon-backup-*/
+native/doc-revision-backup-*/
+native/rename-backup-*/
+*.before-*
+# Dependencies / temporary browser data
+**/node_modules/
+**/.cache/
+**/artifacts/
+**/.s/
+# Local state / credentials / diagnostics
+**/.env
+**/.env.*
+**/*.key
+**/logs/
+messaging/data/
+playwright/.cache/
+autosend/.cache/
+autosend/native-messaging/*.log
+*.sqlite
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.log
+# Python
+**/__pycache__/
+*.pyc
+# macOS artifacts
+*.dSYM/
+# Runtime-generated terminal configuration (never ship in a source archive)
+terminal/config.json
+terminal/stateless-config.json
+terminal/chatgpt-mcp-config*.toml
+# Historical / local executable helper binaries
+terminal/keychain_save
+autosend/NativeDesktopMessenger
+autosend/native-messaging/host.json
+# CDP diagnostics and temporary browser instrumentation
+playwright/.playwright-mcp/
+# Local app support snapshots
+native/*.app/
+playwright/profiles/
+playwright/tmp/
+playwright/cache/
+playwright/.s/
+**/*.before-*
+**/*.backup
+**/*.backup-*
+
+# Browser profile paths above are user data, not deletable build artifacts.
+
+# Include the actual one-click macOS application as requested.
+# Only the intentionally shipped app bundle is permitted.
+!McpGo.app/
+!McpGo.app/**
+!native/AppIcon.icns
+
+# Ignore any future local runtime files, backups, temporary archives and profiles.
+**/profiles/
+**/tmp/
+**/.playwright-mcp/
+**/.DS_Store
+**/*.sqlite*
+**/*.pma
+**/Crashpad/
+**/Local State
+**/Cookies
+**/History
+**/Web Data
+**/Login Data
+**/Preferences
+**/Session Storage/
+**/Sessions/
+**/Local Storage/

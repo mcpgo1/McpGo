@@ -1,0 +1,52 @@
+name: Verify McpGo
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: playwright/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install locked Playwright MCP
+        working-directory: playwright
+        run: npm ci --no-audit --no-fund
+      - name: Python and onboarding regression
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 -m unittest discover -s onboarding/tests -v
+          python3 -m unittest discover -s messaging/tests -v
+          python3 tools/generate_source_inventory.py --check
+      - name: Node MCP regression
+        run: |
+          (cd autosend && node --test tests/*.test.mjs)
+          node --test dashboard/tests/*.test.mjs playwright/tests/*.test.mjs
+          node --check dashboard/server.mjs
+          node --check autosend/server.mjs
+          node --check playwright/restricted-proxy.mjs
+      - name: SwiftUI compile check
+        run: |
+          xcrun swiftc -parse-as-library -typecheck \
+            -sdk "$(xcrun --show-sdk-path)" \
+            -target arm64-apple-macosx14.0 \
+            native/main.swift native/Messaging.swift native/TunnelSettings.swift \
+            native/TunnelHelp.swift native/InteractiveButtonStyle.swift \
+            native/SkillsView.swift native/ScheduledMessages.swift native/OnboardingView.swift
+      - name: Launcher and installer syntax
+        run: |
+          bash -n scripts/launch-macos.sh playwright/start.sh playwright/start-tunnel.sh
+          python3 -m py_compile scripts/setup_macos.py onboarding/cli.py onboarding/setup_engine.py
+          plutil -lint McpGo.app/Contents/Info.plist

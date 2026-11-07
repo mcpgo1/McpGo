@@ -1,0 +1,23 @@
+:root {font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#ebf0ed;background:#101715}
+*{box-sizing:border-box} body{margin:0} .shell{display:flex;flex-direction:column;min-height:100vh;max-width:1600px;margin:auto;padding:22px 28px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:24px}
+.brand{display:flex;align-items:center;gap:14px}.symbol{display:grid;place-items:center;width:48px;height:48px;border-radius:14px;background:#a9c399;color:#1b2920;font-size:28px}
+h1{font-size:19px;margin:0 0 3px;letter-spacing:-.4px}.brand p{font-size:13px;color:#99a8a0;margin:0}
+.state{color:#abb8b1;font-size:13px;display:flex;align-items:center;gap:9px}.dot{width:8px;height:8px;border-radius:50%;background:#68726b}.dot.online{background:#9bce96;box-shadow:0 0 12px #7fb67b}
+.bar{display:flex;align-items:end;justify-content:space-between;gap:12px}.tabs{display:flex;overflow:auto;gap:7px;padding:0 0 8px;min-width:0}
+button{font:inherit;border:1px solid #39483f;background:#26342d;color:#dce6de;border-radius:9px;padding:9px 13px;cursor:pointer;white-space:nowrap;font-size:13px;transition:background .12s}button:hover{background:#34483b}button:disabled{opacity:.35;cursor:not-allowed}
+.tabs button{background:#1d2a23;color:#b4c5b7;border-color:#2c3b31;border-radius:10px 10px 6px 6px}.tabs button.selected{background:#a9c399;color:#152317;font-weight:600;border-color:#a9c399}
+.add{background:#91ad80;color:#172419;font-weight:650;border-color:#91ad80;margin-bottom:8px}
+main{border:1px solid #35443c;border-radius:15px;background:#17201b;overflow:hidden;box-shadow:0 16px 40px #0003}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:15px 18px;border-bottom:1px solid #344038}
+.toolbar strong{font-size:14px;font-weight:600}.toolbar span{margin-left:12px;color:#9faf9f;font-size:11px}.actions{display:flex;gap:7px}.actions .warn{color:#f8d59f}.actions .danger{color:#f9b3a8}
+#screen{min-height:48vh;height:calc(100vh - 340px);max-height:950px;margin:0;padding:19px 20px;overflow:auto;font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;overflow-wrap:anywhere;color:#dbe5dc;background:#0d1512;outline:none}
+#screen:focus{box-shadow:inset 0 0 0 1px #6a9774}.inputline{display:flex;gap:13px;align-items:center;padding:13px 18px;border-top:1px solid #35443c}
+.prompt{font-size:21px;color:#9dc594}textarea{flex:1;min-width:0;max-height:140px;resize:vertical;border:0;outline:none;color:#e5f0e9;background:transparent;font:13px/1.5 ui-monospace,Menlo,monospace}
+.inputline button{background:#a9c399;color:#142418;border:0;font-weight:650;padding:11px 15px}
+.hints{display:flex;justify-content:space-between;gap:10px;padding:0px 18px 14px;font-size:11px;color:#8fa097;flex-wrap:wrap}
+footer{color:#829087;font-size:12px;padding:16px 0}.shade{position:fixed;inset:0;background:#060c09e9;display:grid;place-items:center;padding:25px}.shade[hidden]{display:none}
+.modal{background:#202e24;border:1px solid #46604e;border-radius:16px;padding:26px;max-width:500px;width:100%}
+.modal h2{margin:0 0 10px}.modal p{font-size:14px;line-height:1.7;color:#aebfb1}.modal input{width:100%;padding:12px;border-radius:8px;background:#0b1710;border:1px solid #48604e;color:#fff}
+.modalActions{display:flex;align-items:center;justify-content:space-between;margin-top:16px;gap:10px}.modalActions span{color:#ef988a;font-size:12px}
+@media(max-width:720px){.shell{padding:12px}.top{margin:8px 0 19px}.brand p{display:none}.state{font-size:0}.toolbar{align-items:flex-start}.toolbar span{display:block;margin:6px 0 0}.toolbar{flex-direction:column}.actions{width:100%;overflow:auto}#screen{height:55vh}.hints{display:none}.add{font-size:12px}}

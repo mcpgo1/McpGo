@@ -1,0 +1,8 @@
+node_modules/
+.cache/
+artifacts/
+profiles/
+*.env
+*.log
+*.pid
+.tunnel/
