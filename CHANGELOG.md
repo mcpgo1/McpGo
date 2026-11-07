@@ -4,6 +4,12 @@
 
 ## Unreleased — 2026-11-07
 
+### Open-source licensing
+- Adopted the MIT License for original McpGo source and documentation.
+- Documented third-party Apache-2.0 dependencies and external components separately.
+- Updated README, contribution guidance, FAQ, release checks and npm package license metadata.
+
+
 ### First-run Secure MCP onboarding
 - Added seven-step native SwiftUI wizard and resumable protected state.
 - Scoped remote provisioning/import with no blind retry after unknown remote outcomes.

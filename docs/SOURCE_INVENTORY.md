@@ -74,11 +74,12 @@
 | `tests/test_autosend_ui_refresh.py` | 22 | `c3006466e0766479` |
 | `tests/test_docs_release.py` | 69 | `4e0c0065f5f8aef1` |
 | `tests/test_documentation.py` | 48 | `42ec84133da280ba` |
+| `tests/test_license.py` | 36 | `ae9ff572a78ee89f` |
 | `tests/test_onboarding_safety.py` | 58 | `e74731624485a836` |
 | `tests/test_terminal_tunnel.py` | 42 | `e92bf576c0adc826` |
 | `tools/generate_source_inventory.py` | 72 | `200c408bf393e3e0` |
 | `tools/sync_readme.py` | 23 | `fa026188f89f64b8` |
 
-Всего файлов в выбранном source-only срезе: **72**.
+Всего файлов в выбранном source-only срезе: **73**.
 
 Важно: отсутствие файла в этом инвентаре не доказывает отсутствие выполняемого кода где-либо на диске. Исторические или генерируемые компоненты намеренно исключены; для публичного исходного архива требуется отдельный полный аудит tree.

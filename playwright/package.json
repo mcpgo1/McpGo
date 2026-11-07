@@ -8,5 +8,6 @@
   },
   "scripts": {
     "postinstall": "node patch-playwright.mjs"
-  }
+  },
+  "license": "MIT"
 }
