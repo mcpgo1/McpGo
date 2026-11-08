@@ -23,19 +23,16 @@ class PublicDocsTests(unittest.TestCase):
                 self.assertTrue(path.is_file())
                 self.assertGreater(len(path.read_text()), 1200)
 
-    def test_readme_synchronization(self):
-        source = (DOCS / "README.md").read_text()
-        def relink(match):
-            label, url = match.group(1), match.group(2)
-            if url.startswith(("https:", "http:", "mailto:", "#")):
-                return match.group(0)
-            if url.startswith("../"):
-                return f"[{label}]({url[3:]})"
-            if (DOCS / url.split("#", 1)[0]).exists():
-                return f"[{label}](docs/{url})"
-            return match.group(0)
-        expected = re.sub(r"\[([^\]\n]+)\]\(([^)]+)\)", relink, source)
-        self.assertEqual((ROOT / "README.md").read_text(), expected)
+    def test_user_readme_and_technical_reference_are_linked(self):
+        # Public landing README is written for new users; docs/README.md
+        # remains the independent, detailed technical reference.
+        landing = (ROOT / "README.md").read_text()
+        technical = (DOCS / "README.md").read_text()
+        self.assertIn("docs/README.md", landing)
+        self.assertIn("../README.md", technical)
+        self.assertIn("Где скачать McpGo", landing)
+        self.assertIn("Установка для обычного пользователя", landing)
+        self.assertIn("технический справочник", technical)
 
     def test_source_inventory_is_current(self):
         run = subprocess.run(

@@ -133,3 +133,14 @@ CDP — мощный инструмент, поэтому публичная д�
 Реализация временная до upstream исправления. После обновления Playwright проверить, нужен ли патч, и удалить его только при зелёных регрессионных тестах `node --test playwright/tests/*.test.mjs` и рабочем `browser_tabs(list)` с одной зависшей вкладкой.
 
 Различайте три уровня: WebSocket CDP handshake Chrome, реальный `browser_tabs(list)` через backend и MCP через safe proxy. Только последний отражает штатную сквозную готовность McpGo.
+
+
+## Reliability 2.0: последовательные действия и durable receipts
+
+Safe Proxy теперь сериализует `tools/call` на общей Chrome-сессии: два MCP-клиента не выполняют конкурентные действия над активной вкладкой. Изменяющие tool calls в одном JSON-RPC batch запрещены.
+
+Инструментированные клиенты могут задавать `x-mcpgo-action-id` и `x-mcpgo-expected-url`. Перед кликом proxy убеждается в точном URL активной вкладки в той же критической секции; затем сохраняет receipt до отправки browser action. Повтор того же action ID получает HTTP 409 вместо повторной записи. `mcpgo_action_status({request_id})` даёт read-only информацию о результате.
+
+`completed` означает получение MCP-ответа, **не** гарантированное завершение записи на сайте. `unknown` требует readback внешнего состояния. Этот механизм не заменяет явные пользовательские разрешения и не создаёт изоляцию личного Chrome.
+
+См. [RELIABILITY.md](RELIABILITY.md) и `playwright/action-guard.mjs`.

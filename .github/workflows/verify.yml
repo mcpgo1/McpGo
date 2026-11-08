@@ -49,4 +49,4 @@ jobs:
         run: |
           bash -n scripts/launch-macos.sh playwright/start.sh playwright/start-tunnel.sh
           python3 -m py_compile scripts/setup_macos.py onboarding/cli.py onboarding/setup_engine.py
-          plutil -lint McpGo.app/Contents/Info.plist
+          plutil -lint native/Info.plist

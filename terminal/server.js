@@ -36,7 +36,7 @@ function createSession(name) {
   const s={id,key:secret(),name:(typeof name==='string'?name:'Chat').trim().slice(0,60)||'Chat',created:new Date().toISOString(),status:'starting',pid:null,output:'',base:0,worker:null};
   const user=os.userInfo().username;
   const env={HOME:os.homedir(), USER:user, LOGNAME:user, PATH:'/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', TERM:'xterm-256color',LANG:'en_US.UTF-8'};
-  const child=spawn('/usr/bin/python3',['-u',path.join(APP,'pty_worker.py')],{cwd:os.homedir(),env,stdio:['pipe','pipe','pipe']});
+  const child=spawn(process.env.MCPGO_PYTHON_BIN || '/usr/bin/python3',['-u',path.join(APP,'pty_worker.py')],{cwd:os.homedir(),env,stdio:['pipe','pipe','pipe']});
   s.worker=child;
   const decoder=new StringDecoder('utf8');
   function push(v){

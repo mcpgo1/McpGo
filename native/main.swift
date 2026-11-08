@@ -3,8 +3,41 @@ import SwiftUI
 import Foundation
 
 enum McpGoPaths {
-    static let root = Bundle.main.bundleURL.deletingLastPathComponent().standardizedFileURL.path
     static let userHome = FileManager.default.homeDirectoryForCurrentUser
+    /// Distributable builds copy their signed runtime into writable Application Support.
+    /// Local developer bundles without RuntimeSeed keep their original source root.
+    static let root: String = {
+        let sourceRoot = Bundle.main.bundleURL.deletingLastPathComponent().standardizedFileURL.path
+        guard let seed = Bundle.main.resourceURL?.appendingPathComponent("RuntimeSeed", isDirectory: true),
+              FileManager.default.fileExists(atPath: seed.appendingPathComponent("onboarding/cli.py").path),
+              FileManager.default.fileExists(atPath: seed.appendingPathComponent("release-manifest.json").path)
+        else { return sourceRoot }
+
+        let fm = FileManager.default
+        let support = userHome.appendingPathComponent("Library/Application Support/McpGo", isDirectory: true)
+        let installed = support.appendingPathComponent("Runtime", isDirectory: true)
+        let check = installed.appendingPathComponent("onboarding/cli.py")
+        if fm.fileExists(atPath: check.path) { return installed.standardizedFileURL.path }
+        if fm.fileExists(atPath: installed.path) {
+            // Never overwrite an existing runtime or follow a symlink.
+            return installed.standardizedFileURL.path
+        }
+        do {
+            try fm.createDirectory(at: support, withIntermediateDirectories: true,
+                                   attributes: [.posixPermissions: 0o700])
+            let staging = support.appendingPathComponent(".runtime-staging-\(UUID().uuidString)", isDirectory: true)
+            try fm.copyItem(at: seed, to: staging)
+            do {
+                try fm.moveItem(at: staging, to: installed)
+            } catch {
+                try? fm.removeItem(at: staging)
+                if !fm.fileExists(atPath: check.path) { throw error }
+            }
+        } catch {
+            NSLog("McpGo runtime preparation failed: %@", error.localizedDescription)
+        }
+        return installed.standardizedFileURL.path
+    }()
     static let agentDirectory = userHome.appendingPathComponent("Library/LaunchAgents").path
     static var shouldShowOnboarding: Bool {
         let file=userHome.appendingPathComponent(
@@ -96,13 +129,13 @@ struct ActionResult: Decodable { let ok:Bool?; let error:String? }
             guard let remoteRoot=incoming.installationRoot,
                   URL(fileURLWithPath: remoteRoot).standardizedFileURL.path==root else {
                 state=nil
-                self.error="Обнаружена другая установка McpGo на локальных портах. Запустите «Запустить McpGo.command» и проверьте конфликт."
+                self.error="Обнаружена другая установка McpGo. Откройте «Первое подключение», чтобы проверить конфликт и выбрать безопасное действие."
                 return
             }
             state=incoming
             updated=Date(); error=nil; triedBootstrap=false
         } catch {
-            self.error="Локальная служба не отвечает. Для первой установки откройте «Запустить McpGo.command»."
+            self.error="Локальная служба не отвечает. Откройте «Первое подключение», чтобы завершить настройку и запустить службы."
             if !triedBootstrap {
                 triedBootstrap=true; startDashboard()
                 try? await Task.sleep(for:.milliseconds(700))
@@ -129,7 +162,48 @@ struct ActionResult: Decodable { let ok:Bool?; let error:String? }
         } catch {self.error=error.localizedDescription}
         await refresh()
     }
-    func openFolder(_ path:String) { NSWorkspace.shared.open(URL(fileURLWithPath:root+path)) }
+    func openFolder(_ path:String) {
+        openLocalURL(URL(fileURLWithPath:root).appendingPathComponent(path),
+                     title:"Папка MCP")
+    }
+
+    func openLogs() {
+        // Logs belong to ~/Library/Logs/McpGo, not Runtime/logs.
+        let folder=McpGoPaths.userHome.appendingPathComponent(
+            "Library/Logs/McpGo", isDirectory:true)
+        do {
+            try FileManager.default.createDirectory(
+                at:folder, withIntermediateDirectories:true)
+            openLocalURL(folder,title:"Журналы")
+        } catch {
+            self.error="Не удалось открыть журналы: " + error.localizedDescription
+        }
+    }
+
+    func openDocumentation() {
+        // Ship a readable offline HTML manual inside the signed app bundle.
+        guard let page=Bundle.main.resourceURL?
+            .appendingPathComponent("Documentation/index.html"),
+              FileManager.default.isReadableFile(atPath:page.path) else {
+            self.error="Не найдена локальная документация McpGo. " +
+                       "Проверь установку приложения."
+            return
+        }
+        openLocalURL(page,title:"Документация")
+    }
+
+    private func openLocalURL(_ url:URL,title:String) {
+        guard FileManager.default.fileExists(atPath:url.path) else {
+            self.error="Не найдена папка или файл «" + title + "»."
+            return
+        }
+        guard NSWorkspace.shared.open(url) else {
+            self.error="Не удалось открыть «" + title +
+                       "». Проверь приложение по умолчанию для этого типа файла."
+            return
+        }
+        self.error=nil
+    }
 }
 
 
@@ -316,10 +390,16 @@ private struct SidebarView: View {
                     Text("McpGo")
                         .font(.system(size: 17, weight: .bold, design: .rounded))
                         .foregroundStyle(Palette.ink)
-                    Text("DESKTOP CONTROL")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .tracking(0.6)
-                        .foregroundStyle(Palette.quiet)
+                    if Bundle.main.bundleIdentifier == "local.mcphub.native.dev" {
+                        Text("DEV PREVIEW · НЕ РЕЛИЗ")
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Palette.warning)
+                    } else {
+                        Text("DESKTOP CONTROL")
+                            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+                            .tracking(0.6)
+                            .foregroundStyle(Palette.quiet)
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -438,8 +518,8 @@ private struct SidebarView: View {
                 .padding(.bottom, 10)
 
             SidebarLink(name: "Папка MCP", symbol: "folder") { model.openFolder("") }
-            SidebarLink(name: "Журналы", symbol: "text.alignleft") { model.openFolder("/logs") }
-            SidebarLink(name: "Документация", symbol: "book.closed") { model.openFolder("/docs/README.md") }
+            SidebarLink(name: "Журналы", symbol: "text.alignleft") { model.openLogs() }
+            SidebarLink(name: "Документация", symbol: "book.closed") { model.openDocumentation() }
 
             Spacer(minLength: 20)
 
@@ -615,7 +695,19 @@ private struct DashboardView: View {
                             Text("Выполняется действие…")
                         } else if let error=model.error {
                             Image(systemName:"exclamationmark.triangle.fill").foregroundStyle(Palette.red)
-                            Text(error).foregroundStyle(Palette.red)
+                            VStack(alignment:.leading,spacing:7) {
+                                Text(error).foregroundStyle(Palette.red)
+                                    .fixedSize(horizontal:false,vertical:true)
+                                Button {
+                                    section = "onboarding"
+                                } label: {
+                                    Label("Открыть «Первое подключение»",systemImage:"arrow.up.right")
+                                        .font(.system(size:12,weight:.semibold))
+                                        .foregroundStyle(Palette.accent)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityHint("Перейти к мастеру настройки McpGo")
+                            }
                         } else if let notice=model.notice {
                             Image(systemName:"checkmark.circle.fill").foregroundStyle(Palette.online)
                             Text(notice).foregroundStyle(Palette.muted)

@@ -1,7 +1,8 @@
 import {readFileSync,realpathSync} from 'node:fs';
 import {spawn,execFileSync} from 'node:child_process';
 import os from 'node:os';
-const mcp=new URL('../playwright/',import.meta.url).pathname.replace(/\/$/,'');
+import {fileURLToPath} from 'node:url';
+const mcp=fileURLToPath(new URL('../playwright/',import.meta.url)).replace(/\/$/,'');
 const env={...process.env,TMPDIR:mcp+'/.cache/tmp/',PWTEST_SOCKETS_DIR:mcp+'/.s'};
 const args=[mcp+'/node_modules/@playwright/mcp/cli.js', '--host','127.0.0.1','--port','8931','--cdp-endpoint','chrome','--shared-browser-context','--caps','vision,devtools','--block-service-workers','--no-webmcp','--output-dir',mcp+'/artifacts/shared','--timeout-navigation','45000'];
 console.log('Playwright CDP connecting to existing personal Chrome on 127.0.0.1:8931 (shared)');

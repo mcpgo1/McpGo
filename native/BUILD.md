@@ -10,7 +10,7 @@ xcrun swiftc -parse-as-library -sdk "$(xcrun --show-sdk-path)" \
   main.swift Messaging.swift TunnelSettings.swift TunnelHelp.swift \
   InteractiveButtonStyle.swift SkillsView.swift ScheduledMessages.swift OnboardingView.swift
 cd ..
-cp native/MCPHub McpGo.app/Contents/MacOS/MCPHub
+cp native/MCPHub McpGo.app/Contents/MacOS/MCPHub  # only for a local, explicitly staged bundle
 codesign --force --deep --sign - McpGo.app
 codesign --verify --strict McpGo.app
 ```

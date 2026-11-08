@@ -15,7 +15,30 @@ class DocumentationTests(unittest.TestCase):
             "MIGRATION.md",
         }
         self.assertTrue(all((DOCS / x).is_file() for x in required))
-        self.assertIn('model.openFolder("/docs/README.md")', (ROOT / "native/main.swift").read_text())
+        source=(ROOT / "native/main.swift").read_text()
+        self.assertIn('SidebarLink(name: "Журналы"', source)
+        self.assertIn('model.openLogs()', source)
+        self.assertIn('"Library/Logs/McpGo"', source)
+        self.assertIn('SidebarLink(name: "Документация"', source)
+        self.assertIn('model.openDocumentation()', source)
+        self.assertIn('"Documentation/index.html"', source)
+        self.assertNotIn('model.openFolder("/docs/README.md")', source)
+        self.assertNotIn('model.openFolder("/logs")', source)
+
+    def test_offline_documentation_is_bundled_in_both_app_builds(self):
+        html=ROOT / "assets/docs/index.html"
+        self.assertTrue(html.is_file())
+        page=html.read_text(encoding="utf-8")
+        self.assertIn('<html lang="ru">', page)
+        self.assertIn('McpGo — документация', page)
+        self.assertIn('Library/Logs/McpGo', page)
+        self.assertIn('chrome://inspect/#remote-debugging', page)
+        dev=(ROOT / "scripts/dev_preview_macos.sh").read_text()
+        release=(ROOT / "scripts/build_release_dmg.py").read_text()
+        self.assertIn('assets/docs/index.html', dev)
+        self.assertIn('Documentation/index.html', dev)
+        self.assertIn('assets/docs/index.html', release)
+        self.assertIn('Documentation', release)
 
     def test_relative_markdown_links(self):
         files = [ROOT / "README.md", ROOT / "CONTRIBUTING.md", *DOCS.glob("*.md")]

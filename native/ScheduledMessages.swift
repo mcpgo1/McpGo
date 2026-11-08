@@ -2,6 +2,20 @@ import SwiftUI
 import AppKit
 import Foundation
 
+private struct ScheduledVerification:Decodable {
+    let checks:Int
+    let deadlineAt:String
+    let nextCheckAt:String
+    let lastObservation:String?
+}
+private struct ScheduledStallWatchdog:Decodable {
+    let mode:String
+    let checkedAt:String?
+    let lastProgressAt:String?
+    let faultSince:String?
+    let lastReloadAt:String?
+    let reloadCount:Int?
+}
 private struct ScheduledChatMessage: Decodable, Identifiable {
     let id:String
     let url:String
@@ -18,6 +32,8 @@ private struct ScheduledChatMessage: Decodable, Identifiable {
     let last_stage_at:String?
     let safe_retry_count:Int?
     let manual_once:Bool?
+    let verification:ScheduledVerification?
+    let watchdog:ScheduledStallWatchdog?
     let created_at:String
 }
 private struct DeliveryAttempt: Decodable, Identifiable {
@@ -209,6 +225,17 @@ struct ScheduledMessagesView:View {
         if seconds % 3600 == 0 {return "Каждые \(seconds/3600) ч."}
         return "Каждые \(seconds/60) мин."
     }
+    private func attemptDescription(_ attempt:DeliveryAttempt)->String {
+        switch attempt.result {
+        case "verified":return "Сообщение появилось в чате"
+        case "busy":return "Агент занят · отправки не было"
+        case "deferred":return "Отложено до следующего интервала"
+        case "verifying":return "Проверяем отправку без повторного Send"
+        case "retry":return "Ожидание без отправки"
+        case "blocked":return "Отправка заблокирована"
+        default:return "Результат неизвестен"
+        }
+    }
     private func stateDescription(_ t:ScheduledChatMessage)->String {
         switch t.status {
         case "scheduled":
@@ -217,6 +244,7 @@ struct ScheduledMessagesView:View {
             return t.enabled ? "Включено" : "Ожидает разовую отправку"
         case "checking":return "Проверка занятости агента…"
         case "sending":return "Отправка…"
+        case "verifying":return "Проверяем доставку · без повторной отправки"
         case "verified":return "Подтверждено"
         case "unknown":return "Нужна проверка"
         case "blocked":return "Требуется внимание"
@@ -226,6 +254,7 @@ struct ScheduledMessagesView:View {
     private func stateColor(_ t:ScheduledChatMessage)->Color {
         if t.status=="scheduled" {return Palette.online}
         if t.status=="blocked" || t.status=="unknown" {return Palette.warning}
+        if t.status=="verifying" {return Palette.accent}
         return Palette.muted
     }
 
@@ -378,10 +407,12 @@ struct ScheduledMessagesView:View {
                         VStack(alignment:.leading,spacing:9) {
                             ForEach(model.attempts) { attempt in
                                 HStack(alignment:.top,spacing:9) {
-                                    Image(systemName:attempt.result=="verified" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                                        .foregroundStyle(attempt.result=="verified" ? Palette.online : Palette.warning)
+                                    Image(systemName:attempt.result=="verified" ? "checkmark.circle.fill" :
+                                        attempt.result=="busy" || attempt.result=="deferred" || attempt.result=="verifying" ? "clock.arrow.circlepath" : "exclamationmark.triangle.fill")
+                                        .foregroundStyle(attempt.result=="verified" ? Palette.online :
+                                            attempt.result=="busy" || attempt.result=="deferred" || attempt.result=="verifying" ? Palette.accent : Palette.warning)
                                     VStack(alignment:.leading,spacing:4) {
-                                        Text("\(displayDate(attempt.time)) · \(attempt.result=="verified" ? "Сообщение появилось в чате" : attempt.result=="retry" ? "Ожидание без отправки" : attempt.result=="blocked" ? "Не отправлена" : "Результат неизвестен")")
+                                        Text("\(displayDate(attempt.time)) · \(attemptDescription(attempt))")
                                             .font(.system(size:11,weight:.medium)).foregroundStyle(Palette.ink)
                                         if !attempt.error.isEmpty {
                                             Text(attempt.error).font(.system(size:10.5)).foregroundStyle(Palette.muted)
@@ -433,7 +464,7 @@ struct ScheduledMessagesView:View {
             while !Task.isCancelled {
                 await model.refresh()
                 let active = !model.busyTask.isEmpty || model.tasks.contains {
-                    $0.status == "checking" || $0.status == "sending"
+                    $0.status == "checking" || $0.status == "sending" || $0.status == "verifying"
                 }
                 try? await Task.sleep(for: .seconds(active ? 2 : 5))
             }
@@ -486,6 +517,8 @@ struct ScheduledMessagesView:View {
         case "text_inserted":return "введён текст"
         case "send_clicked":return "нажата отправка"
         case "message_observed":return "сообщение появилось в чате"
+        case "verifying":return "ожидание подтверждения без повторной отправки"
+        case "verification-expired":return "неоднозначный результат"
         default:return "проверка"
         }
     }
@@ -532,7 +565,39 @@ struct ScheduledMessagesView:View {
                         .font(.system(size:11,weight:.medium)).foregroundStyle(Palette.ink)
                 }
             }
-            if task.status=="sending", let stage=task.delivery_stage {
+            if let watcher=task.watchdog {
+                let stale=watcher.mode=="suspected-stall"
+                let recovering=watcher.mode=="recovering"
+                let connectionError=watcher.mode=="interrupted" || watcher.mode=="connection-error" || watcher.mode=="reloading" || watcher.mode=="refresh-deferred"
+                if stale || recovering || connectionError {
+                    Label(
+                        recovering ? "Обновили зависшую вкладку; повторно проверяем готовность" :
+                        connectionError ? "Ответ прерван · восстановим чат и отправим заданное сообщение продолжения после проверки готовности" :
+                        "Нет видимого прогресса. Продолжительную работу без явной ошибки не прерываем.",
+                        systemImage: recovering ? "arrow.clockwise.circle.fill" :
+                            connectionError ? "wifi.exclamationmark" : "clock.badge.exclamationmark"
+                    )
+                    .font(.system(size:11,weight:.medium))
+                    .foregroundStyle(connectionError || stale ? Palette.warning : Palette.accent)
+                    .fixedSize(horizontal:false,vertical:true)
+                    if let when=watcher.lastProgressAt {
+                        Text("Последнее изменение ответа: \(displayDate(when)) · автообновлений: \(watcher.reloadCount ?? 0)")
+                            .font(.system(size:10.5)).foregroundStyle(Palette.muted)
+                    }
+                }
+            }
+            if task.status=="verifying", let proof=task.verification {
+                Label("Дополнительная проверка №\(proof.checks) · до \(displayDate(proof.deadlineAt)). Send повторно не нажимается.",
+                      systemImage:"clock.arrow.circlepath")
+                    .font(.system(size:10.5)).foregroundStyle(Palette.accent)
+                    .fixedSize(horizontal:false,vertical:true)
+                if let reason=proof.lastObservation, !reason.isEmpty {
+                    Text(reason)
+                        .font(.system(size:10.5)).foregroundStyle(Palette.muted)
+                        .fixedSize(horizontal:false,vertical:true)
+                }
+            }
+            if (task.status=="sending" || task.status=="verifying"), let stage=task.delivery_stage {
                 Label("Этап: \(deliveryStageName(stage)) · это не подтверждение завершения ответа ChatGPT",systemImage:"arrow.triangle.2.circlepath")
                     .font(.system(size:10.5)).foregroundStyle(Palette.muted)
                     .fixedSize(horizontal:false,vertical:true)
@@ -563,7 +628,7 @@ struct ScheduledMessagesView:View {
                         .font(.system(size:11)).foregroundStyle(Palette.ink)
                 }
                 .buttonStyle(HubInteractiveButtonStyle(treatment:.bordered))
-                .disabled(task.status=="unknown" || task.status=="sending" || task.status=="checking" || task.manual_once==true)
+                .disabled(task.status=="unknown" || task.status=="sending" || task.status=="checking" || task.status=="verifying" || task.manual_once==true)
                 Spacer()
                 Button { edit(task) } label: {
                     Label("Изменить",systemImage:"pencil")
@@ -578,7 +643,7 @@ struct ScheduledMessagesView:View {
                         .font(.system(size:11)).foregroundStyle(Palette.red)
                 }.buttonStyle(HubInteractiveButtonStyle(treatment:.bordered))
             }
-            .disabled(model.loading || model.busyTask==task.id)
+            .disabled(model.loading || model.busyTask==task.id || task.status=="verifying")
         }
         .padding(16)
         .background(Palette.panel,in:RoundedRectangle(cornerRadius:13))

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {ActionGuard,isMutatingTool,ACTION_STATUS_TOOL} from './action-guard.mjs';
 
 const MODE = process.argv[2] || 'shared';
 if (MODE !== 'shared') throw Error('Only the shared personal Chrome CDP mode is supported');
@@ -13,6 +14,21 @@ let cachedInit = null;
 let initPayload = null;
 let initVersion = '2025-03-26';
 let initInFlight = null;
+const actionGuard=new ActionGuard();
+// A shared Chrome context is not safe for simultaneous browser tool calls:
+// one client can otherwise change the active tab while another is clicking.
+let callTail=Promise.resolve(),queuedCalls=0;
+async function acquireBrowserLock(){
+ if(queuedCalls>=16)throw Error('BROWSER_QUEUE_FULL');
+ queuedCalls++;
+ let release;
+ const turn=new Promise(resolve=>{release=resolve});
+ const predecessor=callTail;
+ callTail=turn;
+ try{await predecessor}finally{queuedCalls--}
+ return release;
+}
+
 
 // Always scope requests to the upstream session. Do not leak downstream
 // session IDs from different MCP clients into the shared Chrome backend.
@@ -112,6 +128,8 @@ const inspectCall = payload => {
     const name = entry?.params?.name;
     if (typeof name !== 'string' || UNSAFE.has(name)) return 'Unsafe or missing tool name';
     const args = entry.params?.arguments || {};
+    if(entries.length>1 && isMutatingTool(name,args))
+      return 'Mutating browser actions must be submitted one at a time';
   }
   return null;
 };
@@ -121,6 +139,7 @@ const stripTools = message => {
   if (Array.isArray(message)) return message.map(stripTools);
   if (Array.isArray(message.result?.tools)) {
     message.result.tools = message.result.tools.filter(t => !UNSAFE.has(t.name));
+    if(!message.result.tools.some(t=>t.name===ACTION_STATUS_TOOL.name))message.result.tools.push(ACTION_STATUS_TOOL);
   }
   return message;
 };
@@ -153,6 +172,40 @@ async function warmupTabIndices(headers) {
     backend.on('error',()=>resolve(false));
     backend.end(payload);
   });
+}
+
+
+/** A page-scoped modifying action must target the exact active tab.
+ * Read the current URL inside the same serialized critical section immediately
+ * before dispatching a browser action. Fail closed if Playwright cannot prove it.
+ */
+function extractMcpToolText(response){
+ const raw=response.body.toString('utf8');
+ let obj=null;
+ if(raw.trimStart().startsWith('{'))obj=JSON.parse(raw);
+ else for(const line of raw.split(/\r?\n/)){
+  if(line.startsWith('data: ')){
+   try{const candidate=JSON.parse(line.slice(6));if(candidate?.result){obj=candidate;break}}
+   catch{}
+  }
+ }
+ return (obj?.result?.content||[]).filter(c=>c?.type==='text').map(c=>c.text||'').join('\n');
+}
+function parseActiveUrl(response){
+ if(response.status!==200)return null;
+ try{
+  const content=extractMcpToolText(response);
+  const section=content.match(/### Result\s*\n([\s\S]*?)(?=\n### |$)/);
+  const raw=(section?.[1]||content).trim();
+  const fenced=raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const value=JSON.parse((fenced?.[1]||raw).trim());
+  return typeof value?.url==='string'?value.url:null;
+ }catch{return null}
+}
+async function verifyActiveUrl(headers,expected){
+ const answer=await upstreamRequest({jsonrpc:'2.0',id:'mcpgo-scope-check',method:'tools/call',
+  params:{name:'browser_evaluate',arguments:{function:'() => ({url: location.href})'}}},headers,'POST',12000);
+ return parseActiveUrl(answer)===expected;
 }
 
 const server = http.createServer(async (req,res) => {
@@ -195,6 +248,28 @@ const server = http.createServer(async (req,res) => {
       res.writeHead(200,{'cache-control':'no-store'});return res.end();
     }
     if(!sharedSessionId)return error(res,503,'MCP session not initialized');
+    if(req.method==='POST'&&data?.method==='tools/call'&&data.params?.name===ACTION_STATUS_TOOL.name){
+      try{
+       const value=actionGuard.lookup(data.params.arguments?.request_id);
+       const reply=Buffer.from(JSON.stringify({jsonrpc:'2.0',id:data.id,
+        result:{content:[{type:'text',text:JSON.stringify(value)}]}}));
+       res.writeHead(200,{'content-type':'application/json','cache-control':'no-store',
+        'mcp-session-id':sharedSessionId,'content-length':String(reply.length)});
+       return res.end(reply);
+      }catch{return error(res,400,'Invalid browser action receipt ID',data?.id??null);}
+    }
+    const isBrowserCall=req.method==='POST'&&data?.method==='tools/call';
+    let unlock=null;
+    try{
+     if(isBrowserCall)unlock=await acquireBrowserLock();
+    }catch{return error(res,429,'Browser action queue full',data?.id??null);}
+    try {
+     // Never dispatch queued actions after the requesting client vanished.
+     if(res.destroyed)return;
+     const name=data?.params?.name,args=data?.params?.arguments||{};
+     const mutating=isBrowserCall&&isMutatingTool(name,args);
+     const actionId=req.headers['x-mcpgo-action-id'];
+     if(actionId && !mutating)return error(res,400,'Action ID is only valid for a modifying browser tool',data?.id??null);
     const oldSession=sharedSessionId;
     const headers={'mcp-session-id':oldSession,'mcp-protocol-version':req.headers['mcp-protocol-version']||initVersion};
     const tabs=data?.method==='tools/call'&&data?.params?.name==='browser_tabs' ? data.params.arguments : null;
@@ -202,7 +277,33 @@ const server = http.createServer(async (req,res) => {
       const warmup=await warmupTabIndices({...headers,host:'localhost:'+BACKEND_PORT,accept:'application/json, text/event-stream','content-type':'application/json'});
       if(!warmup)return error(res,503,'Browser tab index synchronization failed; not executing action',data?.id??null);
     }
-    let upstream=await upstreamRequest(body,headers,req.method,data?.method==='tools/call'?40000:12000);
+    const expected=req.headers['x-mcpgo-expected-url'];
+    if(expected){
+     if(!mutating||typeof expected!=='string'||expected.length>2048)
+      return error(res,400,'Invalid browser action URL guard',data?.id??null);
+     let url;
+     try{url=new URL(expected)}catch{return error(res,400,'Invalid expected URL',data?.id??null)}
+     if(!['https:','http:'].includes(url.protocol) || url.href!==expected)
+      return error(res,400,'Expected URL must be a canonical HTTP(S) URL',data?.id??null);
+     let same=false;
+     try{same=await verifyActiveUrl(headers,expected)}catch{}
+     if(!same)return error(res,409,'Active Chrome tab does not match expected URL. No action dispatched.',data?.id??null);
+    }
+     if(actionId){
+      if(typeof actionId!=='string')return error(res,400,'Invalid action ID',data?.id??null);
+      let receipt;
+      try{receipt=actionGuard.claim(actionId,name,args)}
+      catch{return error(res,400,'Invalid browser action ID or receipt store',data?.id??null)}
+      if(!receipt.claimed)
+       return error(res,409,'Browser action already dispatched or unknown. Use mcpgo_action_status; never replay.',data?.id??null);
+     }
+    let upstream;
+    try{upstream=await upstreamRequest(body,headers,req.method,data?.method==='tools/call'?40000:12000)}
+    catch(e){
+      if(actionId)actionGuard.finish(actionId,'unknown',null);
+      throw e;
+    }
+    if(actionId)actionGuard.finish(actionId,upstream.status===200?'completed':'unknown',upstream.status);
     if(isExpired(upstream)){
       expireSession(oldSession);
       if(req.method!=='POST'||!safeToRetry(data))
@@ -229,11 +330,12 @@ const server = http.createServer(async (req,res) => {
     delete responseHeaders['content-encoding'];
     res.writeHead(upstream.status,responseHeaders);
     res.end(upstream.body);
+    }finally{if(unlock)unlock()}
   } catch {
     if (!res.writableEnded) error(res,502,'MCP backend request failed or timed out');
   }
 });
 server.listen(LISTEN_PORT,'127.0.0.1',()=>{
   console.log('Safe Playwright MCP proxy at http://localhost:' + LISTEN_PORT + '/mcp');
-  console.log('Blocks browser_run_code_unsafe; website navigation unrestricted');
+  console.log('Serializes shared-browser tool calls; optional durable write receipts; unsafe arbitrary code blocked');
 });

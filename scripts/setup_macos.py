@@ -48,7 +48,18 @@ def render(template: Path, node: str) -> dict:
     # The Terminal tunnel launcher lives in Application Support and has no
     # WorkingDirectory. Embed a source ownership marker in every generated
     # LaunchAgent to allow safe, idempotent re-install without guessing.
-    data.setdefault("EnvironmentVariables", {})["MCPGO_INSTALL_ROOT"] = str(ROOT)
+    env = data.setdefault("EnvironmentVariables", {})
+    env["MCPGO_INSTALL_ROOT"] = str(ROOT)
+    packaged_bins = [str(ROOT / "vendor" / item / "bin")
+                     for item in ("node", "python", "tunnel")]
+    env["PATH"] = ":".join(packaged_bins + [
+        env.get("PATH", "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")])
+    python = ROOT / "vendor/python/bin/python3"
+    if python.is_file():
+        env["MCPGO_PYTHON_BIN"] = str(python)
+    tunnel = ROOT / "vendor/tunnel/bin/tunnel-client"
+    if tunnel.is_file():
+        env["MCPGO_TUNNEL_CLIENT"] = str(tunnel)
     if any("__" in x for x in data["ProgramArguments"]):
         raise RuntimeError(f"Unresolved plist placeholder: {template.name}")
     return data
@@ -76,17 +87,27 @@ def check() -> tuple[bool, list[str]]:
         problems.append("McpGo desktop is currently available for macOS only.")
     if os.geteuid() == 0:
         problems.append("Do not install user LaunchAgents as root.")
-    if not (ROOT / "McpGo.app/Contents/Info.plist").is_file():
-        problems.append("McpGo.app is missing.")
+    if not ((ROOT / "McpGo.app/Contents/Info.plist").is_file() or
+            (ROOT / "release-manifest.json").is_file()):
+        problems.append("McpGo.app or release runtime is missing.")
     if not shutil.which("node"):
         problems.append("Node.js not found in PATH.")
     if not shutil.which("python3"):
         problems.append("Python 3 not found in PATH.")
     script = HOME / "Library/Application Support/ChatTerminalHub/run-tunnel.sh"
     source = ROOT / "terminal/run-tunnel.sh"
-    if script.exists() and (script.is_symlink() or
-                            not source.exists() or script.read_bytes() != source.read_bytes()):
-        problems.append("Existing terminal tunnel script belongs to another installation.")
+    if script.exists():
+        if script.is_symlink() or not script.is_file() or not source.is_file():
+            problems.append("Unsafe terminal tunnel script; refusing replacement.")
+        elif script.read_bytes() != source.read_bytes():
+            # A previously installed version of this same McpGo runtime is
+            # expected to differ after an update. The Dashboard's
+            # ensureTerminalTunnel() will replace that copy only on an
+            # explicit start request. Reject genuinely foreign scripts.
+            owner = installed_owner(AGENTS / "com.chatterminalhub.tunnel.plist")
+            if owner != "this":
+                problems.append(
+                    "Existing terminal tunnel script belongs to another installation.")
     for template in sorted(TEMPLATES.glob("*.plist")):
         owner = installed_owner(AGENTS / template.name)
         if owner == "different":

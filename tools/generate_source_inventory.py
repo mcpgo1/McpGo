@@ -13,7 +13,7 @@ DIRECTORIES = {
     "onboarding": {".py"},
     "scripts": {".py", ".sh"},
     "dashboard": {".mjs", ".js", ".html", ".css"},
-    "terminal": {".js", ".py", ".sh", ".html", ".css"},
+    "terminal": {".js", ".cjs", ".mjs", ".py", ".sh", ".html", ".css"},
     "playwright": {".mjs", ".sh"},
     "autosend": {".mjs", ".js", ".py", ".swift", ".html"},
     "messaging": {".py", ".mjs"},

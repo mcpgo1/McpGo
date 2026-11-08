@@ -57,10 +57,9 @@ playwright/.s/
 
 # Browser profile paths above are user data, not deletable build artifacts.
 
-# Include the actual one-click macOS application as requested.
-# Only the intentionally shipped app bundle is permitted.
-!McpGo.app/
-!McpGo.app/**
+# Public repository contains source only. The signed app and DMG belong
+# exclusively in GitHub Releases, not in the Git source tree.
+# The source icon is intentionally part of the reproducible build input.
 !native/AppIcon.icns
 
 # Ignore any future local runtime files, backups, temporary archives and profiles.
@@ -80,3 +79,13 @@ playwright/.s/
 **/Session Storage/
 **/Sessions/
 **/Local Storage/
+
+# Local DMG packaging artifacts: never commit binaries or transient cache
+release/
+
+# Next.js website build outputs; source in website/ is allowed.
+**/.next/
+**/out/
+**/.turbo/
+**/*.tsbuildinfo
+!website/.env.example

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>McpGo — документация</title>
+<style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,Inter,"Segoe UI",sans-serif;background:#0d1016;color:#eef1f7}
+*{box-sizing:border-box}body{margin:0;line-height:1.65}.shell{max-width:940px;margin:0 auto;padding:52px 26px 96px}
+.kicker{font:700 12px ui-monospace,monospace;letter-spacing:.17em;text-transform:uppercase;color:#84dfc2}
+h1{font-size:clamp(36px,6vw,64px);line-height:1.12;margin:16px 0 12px;letter-spacing:-.05em}
+h2{font-size:23px;letter-spacing:-.02em;margin:0 0 14px;color:#f5f6fa}
+p{color:#b3bdcb;margin:8px 0 14px}a{color:#a7dacc}a:hover{color:#fff}
+.intro{font-size:18px;max-width:690px}.nav{display:flex;gap:10px;flex-wrap:wrap;margin:30px 0 34px}
+.nav a{border:1px solid #303847;border-radius:11px;padding:9px 14px;text-decoration:none;background:#161d25}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.panel{border:1px solid #2d3742;background:#141a22;border-radius:16px;padding:25px;margin-bottom:17px}
+strong{color:#edf4f3}ol{margin:8px 0 4px;padding-left:24px}li{padding:5px 0;color:#bec7d3}
+code{font:13px ui-monospace,SFMono-Regular,monospace;background:#222c35;color:#b3eed4;border-radius:5px;padding:3px 6px;overflow-wrap:anywhere}
+.footer{font-size:13px;color:#93a1b1;margin-top:37px}
+@media(max-width:680px){.shell{padding:28px 17px 60px}.grid{grid-template-columns:1fr}}
+</style></head><body><main class="shell">
+<div class="kicker">McpGo / локальная документация</div>
+<h1>Твой Mac. Твои инструменты.</h1>
+<p class="intro">Справка по первому подключению и работе с Terminal MCP, личным Chrome, Secure MCP Tunnels и сообщениями по расписанию. Эта страница открывается без интернета.</p>
+<nav class="nav"><a href="#start">Первый запуск</a><a href="#terminal">Терминал</a><a href="#chrome">Chrome</a><a href="#diagnostics">Диагностика</a><a href="#links">Дополнительно</a></nav>
+<section class="panel" id="start"><h2>Первое подключение</h2>
+<ol><li>Открой McpGo и выбери <strong>«Первое подключение»</strong>.</li>
+<li>Пройди проверку macOS, затем укажи данные организации OpenAI Platform и разрешения для туннелей.</li>
+<li>Создай или подключи два отдельных Secure MCP Tunnel: для терминала и браузера.</li>
+<li>Подтверди доступ и установи локальные службы, затем разреши Chrome Remote Debugging.</li>
+<li>На странице <a href="https://chatgpt.com/plugins">ChatGPT Plugins</a> добавь оба сервера и проверь работу инструментов реальным вызовом из чата.</li></ol>
+<p>Мастер не должен создавать ресурсы или запускать системные службы без явного подтверждения. Для повторного теста используй Dev Preview, а не пересобирай DMG после каждой правки.</p></section>
+<div class="grid"><section class="panel" id="terminal"><h2>Terminal MCP</h2>
+<p>Даёт ChatGPT возможность запускать разрешённые команды, читать результаты, работать с проектом и проверять сборки на твоём Mac.</p>
+<p>Состояние Terminal и Secure MCP Tunnel смотри на главной панели. При ошибке сначала проверь журналы, затем перезапусти только соответствующую службу.</p></section>
+<section class="panel" id="chrome"><h2>Личный Google Chrome</h2>
+<p>Playwright может подключаться к уже открытому личному Chrome. Открой в адресной строке браузера <code>chrome://inspect/#remote-debugging</code> и включи разрешение.</p>
+<p>Статусы Browser MCP и доступности вкладок Chrome CDP проверяются отдельно: работающий MCP-сервер не означает, что Chrome уже ответил на команду просмотра вкладок.</p></section></div>
+<section class="panel" id="diagnostics"><h2>Журналы и диагностика</h2>
+<p>Кнопка <strong>«Журналы»</strong> в боковом меню открывает папку <code>~/Library/Logs/McpGo</code> через Finder. В ней находятся диагностические сообщения локальных служб и туннелей.</p>
+<p>Если MCP не отвечает: проверь наличие запущенных служб на панели, разрешение Chrome, затем выполни повторную локальную проверку в мастере. Реальная доступность из ChatGPT проверяется отдельно.</p>
+<p>Не отправляй в публичные отчёты API-ключи, секреты Service Account и личные данные из логов.</p></section>
+<section class="panel" id="links"><h2>Проект и исходники</h2>
+<p>McpGo — бесплатный проект с открытым исходным кодом (MIT). Подробные технические инструкции, актуальные изменения и исходники смотри в репозитории.</p>
+<p><a href="https://github.com/mcpgo1/McpGo">Исходники и README на GitHub</a> · <a href="https://chatgpt.com/plugins">Настройки плагинов ChatGPT</a></p>
+<p>Сообщения по таймеру и координация агентов развиваются; некоторые сценарии пока требуют ручной проверки.</p></section>
+<div class="footer">McpGo • Документация включена в приложение и не требует публичного сервера.</div>
+</main></body></html>

@@ -128,6 +128,6 @@ test('a repeated phrase in page text cannot falsely confirm a click',async()=>{
   return value;
  };
  const result=await deliverViaPlaywright(task,async()=>f.commit(),{client:f.client,wait:async()=>{}});
- assert.equal(result.status,'unknown');
+ assert.equal(result.status,'pending');
  assert.equal(f.calls.filter(c=>c.name==='browser_click').length,1,'never retry an ambiguous click');
 });

@@ -83,9 +83,19 @@ export function markUnknownOnBoot(state){
       t.status='scheduled';t.next_at=new Date(Date.now()+t.interval_seconds*1000).toISOString();
       t.last_error='Проверка прервана перезапуском. Сообщение не отправлялось; следующая попытка по расписанию.';
     }
-    if(t.status==='sending'){
+    if(t.status==='sending' && Number.isInteger(t.verification?.baselineUserCount)){
+      // A persisted click receipt survives process restart; reconciliation is
+      // read-only and cannot dispatch the message a second time.
+      t.status='verifying';t.next_at=null;t.delivery_stage='verifying';
+      t.verification.nextCheckAt=new Date().toISOString();
+      t.last_error='Восстанавливаем проверку ранее нажатой отправки без повторного Send.';
+    } else if(t.status==='sending' || (t.status==='verifying' && !t.verification)){
       t.enabled=false;t.status='unknown';t.next_at=null;t.manual_once=false;
-      t.last_error='Неизвестно, была ли отправка завершена до перезапуска. Проверь чат вручную; автоматический повтор запрещён.';
+      t.last_error='Неизвестно, была ли отправка завершена до перезапуска. Проверь чат вручную; повтор запрещён.';
+    }
+    if(t.status==='verifying' && t.verification){
+      t.next_at=null;
+      t.verification.nextCheckAt=new Date().toISOString();
     }
     if(t.url?.startsWith('codex://') || (t.enabled && !t.url?.startsWith('https://chatgpt.com/c/') && !t.url?.startsWith('https://chatgpt.com/g/g-p-'))){
       t.enabled=false;t.status='blocked';t.next_at=null;t.manual_once=false;

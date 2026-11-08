@@ -54,7 +54,7 @@ source.close()
 
 ## 4. AutoSend JSON
 
-`autosend/core.mjs`: `stateFile` может задаваться `MCPHUB_AUTOSEND_STATE`, по умолчанию используется `~/Library/Application Support/MCPHub/AutoSend/tasks.json`. Каталог создаётся owner-only; записи производятся через новый temporary file и атомарный rename.
+`autosend/core.mjs`: `stateFile` может задаваться `MCPHUB_AUTOSEND_STATE`, по умолчанию используется `~/Library/Application Support/McpGo/AutoSend/tasks.json`. Каталог создаётся owner-only; записи производятся через новый temporary file и атомарный rename.
 
 Формат имеет `version=1`, массивы `tasks` и `attempts`. В task сохраняются: ID, URL, текст сообщения, интервал, enabled/status, timestamps, delivery_count, last_error и вспомогательное состояние. При boot `markUnknownOnBoot` не превращает прерванное потенциально отправленное сообщение в новую попытку.
 
@@ -92,7 +92,7 @@ source.close()
 
 ## 8. Угрозы целостности
 
-- Во время crash AutoSend может оказаться в `unknown`, но не должен повторять потенциальный клик.
+- После crash c сохранённым click receipt AutoSend продолжает read-only `verifying`; без подтверждённого baseline возвращает `unknown`. Повторный Send запрещён. В receipt сохраняется SHA-256 предыдущего user bubble, а не текст приватной реплики.
 - SQLite WAL + параллельные writers требуют последовательной backup/restore процедуры.
 - Потеря профиля Chrome или разрешения CDP меняет способность browser tools работать.
 - Изменение Bundle ID может повлиять на сохранённые системные разрешения приложения.

@@ -82,6 +82,26 @@ class SetupEngineTests(unittest.TestCase):
                                    "organizationId": "org_/../../secret"})
         self.assertEqual(self.engine.creates, [])
 
+    def test_platform_scope_accepts_current_hyphenated_ids(self):
+        # Real Organization IDs use org-; the legacy underscore format still works.
+        for org in ("org-ExampleValid123", "org_legacy123"):
+            with self.subTest(org_prefix=org[:4]):
+                self.assertEqual(
+                    self.engine.scope_args({"organizationId":org}),
+                    ["--organization-id",org]
+                )
+                result=self.engine.discover({"organizationId":org,"adminKey":"test-admin-key"})
+                self.assertEqual(result["tunnels"],[])
+
+    def test_scope_rejects_malformed_ids_without_leaking_secrets(self):
+        for invalid in ("org-", "org-bad/value", "org-foo bar", "org-../../x",
+                        "org-русский", "notorg-value", "org-abc\\nother"):
+            with self.subTest(kind="malformed"):
+                with self.assertRaisesRegex(SetupError,"Organization ID"):
+                    self.engine.scope_args({"organizationId":invalid})
+        for ws in ("ws-abcd1234", "ws_abcd1234", "workspace-abcd1234"):
+            self.assertIn("--workspace-id",self.engine.scope_args({"workspaceId":ws}))
+
     def test_create_twice_uses_same_remote_ids(self):
         request = {"confirmed": True, "adminKey": "test-admin-key",
                    "organizationId": "org_123456"}
@@ -166,6 +186,74 @@ class SetupEngineTests(unittest.TestCase):
             with self.assertRaises(SetupError):
                 self.engine.import_tunnels({"confirmed": True, **invalid})
 
+    def test_browser_tabs_probe_has_longer_timeout_than_initial_handshake(self):
+        from unittest.mock import patch
+        timeouts=[]
+        class FakeResponse:
+            headers={}
+            def __init__(self,result): self.result=result
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def read(self,n): return json.dumps(self.result).encode()
+        def respond(request,timeout=None):
+            packet=json.loads(request.data)
+            method=packet["method"]
+            timeouts.append((method,timeout))
+            results={
+                "initialize":{"serverInfo":{"name":"test"}},
+                "tools/list":{"tools":[{"name":"browser_tabs"}]},
+                "tools/call":{"content":[{"type":"text","text":"### Result\\nTabs"}]},
+            }
+            if method=="notifications/initialized":
+                return FakeResponse({})
+            return FakeResponse({"jsonrpc":"2.0","id":packet["id"],
+                                 "result":results[method]})
+        with patch("urllib.request.urlopen",side_effect=respond):
+            self.assertTrue(SetupEngine.probe_tools(
+                "http://127.0.0.1:8940/mcp",{"browser_tabs"},verify_browser=True))
+        self.assertEqual(dict(timeouts)["tools/call"],15)
+        self.assertEqual(dict(timeouts)["initialize"],6)
+        self.assertEqual(dict(timeouts)["tools/list"],6)
+
+    def test_verify_local_keeps_browser_mcp_ready_when_chrome_tabs_stalls(self):
+        from unittest.mock import patch
+        engine=self.engine
+        class FakeResponse:
+            headers={}
+            def __init__(self,result): self.result=result
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def read(self,n): return json.dumps(self.result).encode()
+        def respond(request,timeout=None):
+            if not hasattr(request,"data") or request.data is None:
+                return FakeResponse({"installationRoot":str(engine.root),
+                                     "playwright":{"mcpReady":True}})
+            packet=json.loads(request.data)
+            method=packet["method"]
+            if method=="tools/call":
+                raise TimeoutError("Chrome tabs did not respond")
+            if method=="notifications/initialized":
+                return FakeResponse({})
+            result={
+                "initialize":{"serverInfo":{"name":"mcpgo-browser"}},
+                "tools/list":{"tools":[{"name":"browser_tabs"}]}
+            }[method]
+            return FakeResponse({"jsonrpc":"2.0","id":packet["id"],
+                                 "result":result})
+        with patch("urllib.request.urlopen",side_effect=respond):
+            result=engine.verify_local()
+        self.assertTrue(result["browserMcp"])
+        self.assertFalse(result["browser"])
+        self.assertFalse(result["chrome"])
+        self.assertIn("Playwright MCP работает",result["browserDetail"])
+        self.assertFalse(result["chatgptVerified"])
+
+    def test_chrome_permission_link_uses_explicit_google_chrome_app(self):
+        source=(Path(__file__).parents[2]/"native/OnboardingView.swift").read_text()
+        self.assertIn('withBundleIdentifier:"com.google.Chrome"',source)
+        self.assertIn('withApplicationAt:chrome',source)
+        self.assertNotIn('NSWorkspace.shared.open(url)',source)
+
     def test_readonly_browser_mcp_probe_parses_sse_and_checks_real_result(self):
         import http.server
         import threading
@@ -200,6 +288,78 @@ class SetupEngineTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             worker.join(timeout=2)
+
+    def test_start_local_shows_specific_dashboard_failure_without_leaking_unknowns(self):
+        import io
+        import urllib.error
+        from unittest.mock import patch
+        state=self.engine.read_state()
+        state["localServicesInstalled"]=True
+        self.engine.write_state(state)
+        class StatusResponse:
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def read(self,n): return json.dumps({"installationRoot":str(self_engine.root)}).encode()
+        self_engine=self.engine
+        error=urllib.error.HTTPError(
+            "http://127.0.0.1:8969/api/action",500,"failed",{},
+            io.BytesIO(json.dumps({
+                "error":"Playwright не открыл порт 8931 — проверьте logs/playwright/browser.err.log"
+            }).encode()))
+        with patch("urllib.request.urlopen", side_effect=[StatusResponse(),error]):
+            with self.assertRaisesRegex(SetupError,"Playwright не открыл порт 8931"):
+                self.engine.start_local({"confirmed":True,"group":"playwright"})
+
+    def test_start_local_does_not_reveal_untrusted_dashboard_response(self):
+        import io
+        import urllib.error
+        from unittest.mock import patch
+        state=self.engine.read_state()
+        state["localServicesInstalled"]=True
+        self.engine.write_state(state)
+        class StatusResponse:
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def read(self,n): return json.dumps({"installationRoot":str(engine.root)}).encode()
+        engine=self.engine
+        error=urllib.error.HTTPError(
+            "http://127.0.0.1:8969/api/action",500,"failed",{},
+            io.BytesIO(json.dumps({"error":"unexpected private-key material"}).encode()))
+        with patch("urllib.request.urlopen", side_effect=[StatusResponse(),error]):
+            with self.assertRaises(SetupError) as raised:
+                self.engine.start_local({"confirmed":True,"group":"terminal"})
+        self.assertNotIn("private-key",str(raised.exception))
+        self.assertIn("HTTP 500",str(raised.exception))
+
+    def test_verify_local_recovers_after_transient_dashboard_timeout(self):
+        from unittest.mock import patch
+        class LocalDashboard:
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def read(self,n):
+                return json.dumps({"installationRoot":str(engine.root),
+                                   "playwright":{"mcpReady":False}}).encode()
+        engine=self.engine
+        with patch("urllib.request.urlopen",
+                   side_effect=[OSError("temporary stall"),LocalDashboard()]):
+            with patch.object(SetupEngine,"probe_tools",return_value=False):
+                result=engine.verify_local()
+        self.assertNotIn("blocker",result)
+        self.assertFalse(result["terminal"])
+        self.assertFalse(result["browser"])
+
+    def test_verify_local_does_not_trust_foreign_dashboard(self):
+        from unittest.mock import patch
+        class ForeignDashboard:
+            def __enter__(self): return self
+            def __exit__(self,*args): return False
+            def read(self,n):
+                return json.dumps({"installationRoot":"/tmp/OtherMcpGo"}).encode()
+        with patch("urllib.request.urlopen",return_value=ForeignDashboard()):
+            with patch.object(SetupEngine,"probe_tools",return_value=True) as called:
+                result=self.engine.verify_local()
+                called.assert_not_called()
+        self.assertIn("другой установке",result["blocker"])
 
     def test_local_verification_is_not_chatgpt_verification(self):
         result = self.engine.verify_local()

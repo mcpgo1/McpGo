@@ -58,3 +58,27 @@ node --check restricted-proxy.mjs
 - [INTERFACES.md](INTERFACES.md) — порты, MCP, API, данные.
 - [OPERATIONS.md](OPERATIONS.md) — служебные проверки и восстановление.
 - Директории `autosend/`, `playwright/`, `messaging/`, `terminal/` содержат подробности реализаций и исторические заметки. Старые инструкции про отдельный Chromium, Chrome Extension и Native Messaging следует считать историческими, если они противоречат текущему CDP-коду.
+
+## Быстрая проверка SwiftUI без новой нотариализации
+
+Во время работы над мастером не пересобирай DMG на каждое исправление.
+Вместо этого после правки SwiftUI запусти:
+
+    cd <INSTALL_ROOT>
+    ./scripts/dev_preview_macos.sh --launch
+
+Первый запуск копирует подписанный McpGo.app из /Applications в отдельный
+release/dev/McpGo Dev.app (APFS copy-on-write), меняет Bundle ID на
+local.mcphub.native.dev, компилирует SwiftUI в debug-режиме и подписывает
+только эту локальную копию ad-hoc. Последующие запуски обновляют только
+исполняемый файл и подпись, не копируя runtime заново.
+
+Dev-версия помечена DEV PREVIEW, чтобы не путать её с обычным McpGo.
+Скрипт корректно закрывает только предыдущую Dev-версию при пересборке;
+приложение в /Applications, рабочие LaunchAgents, Keychain и пользовательские
+данные не меняются.
+
+Ограничение: Dev-просмотр работает с текущим пользовательским состоянием
+~/Library/Application Support/McpGo/Runtime. Это не независимая «чистая»
+установка. Для полной проверки нового пользователя остаётся тест в отдельном
+профиле macOS с финальным DMG, подписью Developer ID и нотариализацией.

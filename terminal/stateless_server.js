@@ -9,9 +9,10 @@ const { spawn } = require('node:child_process');
 const jobs = require('./job_runtime.js');
 
 const DIR = __dirname;
-const CONFIG = path.join(os.homedir(),'Library','Application Support','McpGo','terminal','stateless-config.json');
+const CONFIG = process.env.MCPGO_ONESHOT_CONFIG || path.join(os.homedir(),'Library','Application Support','McpGo','terminal','stateless-config.json');
 fs.mkdirSync(path.dirname(CONFIG),{recursive:true,mode:0o700});
-const PORT = 12848;
+const PORT = Number(process.env.MCPGO_ONESHOT_PORT || 12848);
+if(!Number.isInteger(PORT)||PORT<1024||PORT>65535)throw Error('INVALID_ONESHOT_PORT');
 
 if (!fs.existsSync(CONFIG)) {
   fs.writeFileSync(CONFIG, JSON.stringify({
@@ -26,7 +27,7 @@ if (!/^exec\/[a-f0-9]{64}$/.test(config.mcpPath)) {
 
 const tool = {
   name: 'terminal_exec',
-  description: 'Execute one command on the user-owned Mac. No persistent terminal session. Returns stdout, stderr, exit code and timeout status. Maximum 90 seconds. Do not repeat an unknown or timed-out operation without checking its effects.',
+  description: 'Short one-shot macOS command, default timeout 30 sec, maximum 90 sec. For longer tests/builds use durable job_start, then job_status and job_logs. If ChatGPT response disconnects, recover with job_recent and NEVER restart an uncertain job.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -239,11 +240,16 @@ const server = http.createServer(async (req, res) => {
         };
       }
     } else if (method === 'tools/call' &&
-               ['job_start', 'job_status', 'job_logs'].includes(params?.name)) {
+               ['job_start', 'job_status', 'job_logs', 'job_recent','job_cancel','job_result','job_watch','job_output'].includes(params?.name)) {
       try {
         const args = params.arguments || {};
         const value = params.name === 'job_start' ? jobs.startJob(args)
                     : params.name === 'job_status' ? jobs.getStatus(args)
+                    : params.name === 'job_recent' ? jobs.recent(args)
+                    : params.name === 'job_cancel' ? jobs.cancel(args)
+                    : params.name === 'job_result' ? jobs.result(args)
+                    : params.name === 'job_watch' ? await jobs.watch(args)
+                    : params.name === 'job_output' ? jobs.output(args)
                     : jobs.logs(args);
         result = { content: [{ type: 'text', text: JSON.stringify(value) }] };
       } catch (error) {

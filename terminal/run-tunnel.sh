@@ -6,4 +6,4 @@ if [[ -z "$CONTROL_PLANE_API_KEY" ]]; then
   exit 1
 fi
 export CONTROL_PLANE_API_KEY
-exec /opt/homebrew/bin/tunnel-client run --profile chat-terminal-hub
+exec "${MCPGO_TUNNEL_CLIENT:-$(command -v tunnel-client)}" run --profile chat-terminal-hub

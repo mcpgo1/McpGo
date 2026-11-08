@@ -110,3 +110,23 @@ AND ожидаемый пользовательский результат де�
 TerminalHub — **мощный execution interface к Mac**, не jailed shell. MCP-разрешение, user confirmation для опасных операций, OS ACL и отсутствие внешней публикации портов важнее названия плагина. При публичной разработке обязательны тесты неверного capability, ограничений длин запросов, закрытия сессий и shutdown.
 
 См. `terminal/server.js`, `terminal/stateless_server.js`, `terminal/job_runtime.js`, `terminal/job_worker.js`, `terminal/pty_worker.py`; сопутствующий runtime — [OPERATIONS.md](OPERATIONS.md).
+
+
+## Reliability 2.0: восстановление после потери ответа MCP
+
+Новый протокол подробно описан в [RELIABILITY.md](RELIABILITY.md). Инструменты терминального MCP расширены:
+
+| Инструмент | Назначение |
+|---|---|
+| `job_start({command,cwd?,timeout_ms?,request_id?})` | Durable start. Стабильный `request_id` предотвращает дублирующие запуски |
+| `job_recent({limit?})` | Получение ID существующих заданий после обрыва соединения |
+| `job_watch({job_id,wait_ms?})` | Read-only ожидание прогресса/изменения состояния до 25 секунд |
+| `job_status({job_id})` | Heartbeat, progress, stdout/stderr counters, exit code |
+| `job_result({job_id})` | Сохранённый итог с SHA-256 логов |
+| `job_output({job_id,stream?,offset?,max_bytes?})` | Byte-accurate страницы вывода в Base64 |
+| `job_cancel({job_id})` | Запрос отмены; ожидать конечного receipt |
+| `job_logs({job_id,...})` | Ограниченный хвост строк |
+
+Используйте `request_id` при работе с долгими задачами и не создавайте новый для повторения уже отправленного запроса после потери MCP-ответа. В текущем runtime сохраняются первые 64 MiB stdout и stderr на поток, затем выставляется `truncated`. Полное отсутствие stdout не является доказательством зависания, если heartbeat обновляется.
+
+Для изолированных тестов используются `MCPGO_JOB_ROOT`, `MCPGO_ONESHOT_CONFIG` и `MCPGO_ONESHOT_PORT`, без доступа к действующим пользовательским заданиям.

@@ -2,6 +2,23 @@
 
 Все существенные изменения продукта McpGo отражаются здесь. Для автоматического релиза и SemVer-политики пока не настроена единая публичная CI/CD-схема; даты относятся к локальной референс-установке, не к опубликованным GitHub releases.
 
+## 2.0.3 — 2026-11-08 (локальная сборка)
+
+- В справочном скриншоте шестого шага первого подключения скрыта значимая часть Tunnel ID непрозрачной заливкой; персональный идентификатор нельзя прочитать из опубликованного изображения.
+- Обновлены ресурсы мастера первого запуска для macOS DMG.
+- Подготовлен план будущего восстановления терминального и браузерного туннелей в docs/TUNNEL_RECOVERY_PLAN.md; supervisor ещё не реализован.
+- Предыдущую DMG 2.0.2 с исходной фотографией использовать для распространения нельзя.
+
+## AutoSend delivery reliability — 2026-11-07
+
+- Added persistent `verifying` after a click when ChatGPT DOM does not immediately show a new user message.
+- Added read-only 180-second reconciliation with 12-second intervals; never clicks Send again.
+- Persists a minimal click receipt and SHA-256 fingerprint rather than a previous private chat message.
+- Restores safe reconciliation on restart without automatic resends.
+- Improved user-bubble detection under virtualized chat DOM and new message IDs.
+- Distinct UI labels for busy/deferred/verifying/unknown, with verification progress.
+- Added regression tests for delayed acknowledgement, lost tab, restart and timeout.
+
 ## Unreleased — 2026-11-07
 
 ### Open-source licensing
@@ -63,3 +80,21 @@
 ## Исторические версии
 
 Ранее существовавшие реализации доставки с MV3 Extension/Native Messaging оставлены в исходниках как исторический контекст. Они не являются активным режимом AutoSend и не должны включаться параллельно CDP delivery.
+
+### Interrupted-response auto-continuation
+
+- Detect stable explicit ChatGPT interruption; recover quickly by refreshing exact tab once.
+- Resume schedule immediately only after a clean, independently confirmed ready state.
+- Do not interrupt healthy long tasks or send while Stop/streaming remains active.
+
+
+## Reliability 2.0 — 2026-11-08
+- Added durable job start idempotency with stable `request_id`, exclusive claims and recovery by `job_recent`.
+- Added `job_watch`, `job_output`, `job_result`, `job_cancel`, progress markers, 5-second heartbeat and final result checksums.
+- Retains up to 64 MiB of each output stream and pages it without duplicating jobs.
+- Serializes shared Chrome MCP calls, refuses mutating batches, offers durable browser action receipts and `mcpgo_action_status`.
+- AutoSend click now supplies stable action ID and exact expected chat URL; proxy verifies the active tab before acting.
+- Added isolated terminal/MCP/browser regression tests. No real ChatGPT messages were sent.
+
+- Recover finished jobs from durable result.json after crash between completion receipt and status update.
+- Report 30-second stale runner heartbeat as `stalled` rather than indefinitely `running`. Never auto-retry or cancel uncertain work.

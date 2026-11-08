@@ -22,7 +22,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 TUNNEL_ID = re.compile(r"^tunnel_[A-Za-z0-9_-]{3,180}$")
-SCOPE_ID = re.compile(r"^(?:org|ws|workspace)_[A-Za-z0-9_-]{3,180}$")
+SCOPE_ID = re.compile(r"^(?:org|ws|workspace)[-_][A-Za-z0-9_-]{3,180}$")
 STAGES = ("preflight", "authorization", "tunnels", "local", "chrome", "chatgpt", "verification")
 PLATFORM_URL = "https://platform.openai.com/settings/organization/tunnels"
 CHATGPT_URL = "https://chatgpt.com/#settings/Connectors"
@@ -96,7 +96,8 @@ class SetupEngine:
             ("python", bool(shutil.which("python3")), "Python 3"),
             ("tunnel-client", Path(self.client).is_file() and os.access(self.client, os.X_OK),
              "OpenAI tunnel-client (используйте официальный дистрибутив)"),
-            ("bundle", (self.root / "McpGo.app/Contents/Info.plist").is_file(), "McpGo.app"),
+            ("bundle", (self.root / "McpGo.app/Contents/Info.plist").is_file() or
+             (self.root / "release-manifest.json").is_file(), "McpGo.app"),
             ("source", (self.root / "terminal/stateless_server.js").is_file() and
              (self.root / "playwright/restricted-proxy.mjs").is_file(), "MCP исходники"),
             ("browser-deps", (self.root / "playwright/node_modules/@playwright/mcp/cli.js").exists(),
@@ -129,11 +130,11 @@ class SetupEngine:
             raise SetupError("Укажите организацию OpenAI Platform или workspace ChatGPT.")
         args = []
         if org:
-            if not SCOPE_ID.fullmatch(org) or not org.startswith("org_"):
+            if not SCOPE_ID.fullmatch(org) or not org.startswith(("org-", "org_")):
                 raise SetupError("Неверный Organization ID.")
             args += ["--organization-id", org]
         if ws:
-            if not SCOPE_ID.fullmatch(ws) or not (ws.startswith("ws_") or ws.startswith("workspace_")):
+            if not SCOPE_ID.fullmatch(ws) or not ws.startswith(("ws-", "ws_", "workspace-", "workspace_")):
                 raise SetupError("Неверный Workspace ID.")
             args += ["--workspace-id", ws]
         return args
@@ -194,6 +195,40 @@ class SetupEngine:
         rows = self.tunnel_rows(output)
         return {"tunnels": [{"name": str(x.get("name") or "")[:120],
                              "id": self.tunnel_id(x)} for x in rows if self.tunnel_id(x)]}
+
+    def runtime_projects(self, data: dict) -> dict:
+        """Read-only project selection; does not provision anything."""
+        from runtime_provision import RuntimeAutoProvisioner, RuntimeAdminError
+        try:
+            return RuntimeAutoProvisioner(self).projects(data)
+        except RuntimeAdminError as exc:
+            raise SetupError(str(exc)) from None
+
+    def runtime_inspect(self, data: dict) -> dict:
+        """Read-only check of previously attempted runtime resources."""
+        from runtime_provision import RuntimeAutoProvisioner, RuntimeAdminError
+        try:
+            return RuntimeAutoProvisioner(self).inspect(data)
+        except RuntimeAdminError as exc:
+            raise SetupError(str(exc)) from None
+
+    def runtime_recover_key(self, data: dict) -> dict:
+        """Explicit one-time recovery from an uncertain Service Account key POST."""
+        from runtime_provision import RuntimeAutoProvisioner, RuntimeAdminError
+        self.ensure_installation_ownership()
+        try:
+            return RuntimeAutoProvisioner(self).recover_key(data)
+        except RuntimeAdminError as exc:
+            raise SetupError(str(exc)) from None
+
+    def runtime_auto(self, data: dict) -> dict:
+        """Explicit opt-in. One-time secret is returned only to local SwiftUI."""
+        from runtime_provision import RuntimeAutoProvisioner, RuntimeAdminError
+        self.ensure_installation_ownership()
+        try:
+            return RuntimeAutoProvisioner(self).provision(data)
+        except RuntimeAdminError as exc:
+            raise SetupError(str(exc)) from None
 
     def import_tunnels(self, data: dict) -> dict:
         if data.get("confirmed") is not True:
@@ -420,6 +455,14 @@ class SetupEngine:
                                "remoteVerified": bool(rec.get("remoteVerified"))}
                         for name, rec in state.get("tunnels", {}).items()},
             "pending": state.get("pending"),
+            "runtimeProvision": {
+                # Safe wizard progress metadata only; no IDs, API key values,
+                # group membership or external resource names.
+                "projectSelected": bool((state.get("runtimeProvision") or {}).get("projectId")),
+                "pending": str((state.get("runtimeProvision") or {}).get("pending") or "")[:64],
+                "status": str((state.get("runtimeProvision") or {}).get("status") or "")[:64],
+                "keyRecoveryAttempted": bool((state.get("runtimeProvision") or {}).get("keyRecoveryAttempted")),
+            },
             "localConfigured": state.get("localConfigured", False),
             "localServicesInstalled": state.get("localServicesInstalled", False),
             "chatgpt": state.get("chatgpt", {}),
@@ -467,6 +510,7 @@ class SetupEngine:
     def start_local(self, data: dict) -> dict:
         """Only explicitly start managed services, never stop/restart existing user tasks."""
         import urllib.request
+        import urllib.error
         group = data.get("group")
         if data.get("confirmed") is not True or group not in ("terminal", "playwright"):
             raise SetupError("Выберите Terminal или Playwright и подтвердите запуск.")
@@ -485,15 +529,45 @@ class SetupEngine:
                 method="POST",
                 headers={"Origin": base, "X-MCP-Hub": "dashboard",
                          "Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=85) as res:
+            # Browser startup can include CDP consent and MCP health checks.
+            # Do not report a client-side timeout as if services definitely failed.
+            with urllib.request.urlopen(req, timeout=180) as res:
                 outcome = json.loads(res.read(32768))
             if not outcome.get("ok"):
-                raise SetupError("Службы не прошли проверку готовности; смотрите журнал McpGo.")
+                raise SetupError("Службы не прошли проверку готовности; проверь Dashboard.")
             return {"started": group, "ready": True}
+        except urllib.error.HTTPError as exc:
+            if exc.code == 409:
+                raise SetupError("Dashboard уже запускает или проверяет службы. " +
+                                 "Не отправляй повторную команду; проверь состояние позже.") from None
+            # Messages originate only from this local Dashboard. Never pass
+            # arbitrary response data or credential-looking strings to SwiftUI.
+            try:
+                payload = json.loads(exc.read(4096))
+                message = str(payload.get("error") or "")
+            except (ValueError, TypeError, UnicodeError):
+                message = ""
+            safe_reasons = (
+                "Playwright не открыл порт 8931",
+                "MCP proxy не открыл порт 8940",
+                "Браузер открыл порт, но MCP не готов",
+                "Туннель не запустился",
+                "Playwright не прошёл проверку готовности",
+                "Playwright CDP не видит вкладки Chrome",
+                "Не все службы запустились",
+                "Служба завершилась сразу после запуска",
+                "Не найден run-tunnel.sh",
+            )
+            if any(message.startswith(prefix) for prefix in safe_reasons):
+                raise SetupError("Dashboard: " + message[:220]) from None
+            raise SetupError("Dashboard отказал в запуске (HTTP " + str(exc.code) +
+                             "). Открой Dashboard для диагностики.") from None
         except SetupError:
             raise
         except (OSError, ValueError, TimeoutError):
-            raise SetupError("Не удалось подтвердить запуск служб: проверьте Dashboard и логи.") from None
+            raise SetupError("Dashboard не подтвердил запуск. Он может ещё выполнять " +
+                             "проверки — нажми «Проверить локальные MCP», " +
+                             "не перезапускай службы вслепую.") from None
 
     def doctor(self, data: dict) -> dict:
         """Read-only tunnel-client diagnostics; never returns key or raw CLI output."""
@@ -532,18 +606,29 @@ class SetupEngine:
         import urllib.error
         state = self.read_state()
         status: dict[str, Any] = {"terminal": False, "browser": False,
-                                  "chrome": False, "chatgptVerified": False}
+                                  "browserMcp": False, "chrome": False,
+                                  "chatgptVerified": False}
         # Refuse to attribute another installed McpGo's listener to this copy.
-        try:
-            req = urllib.request.Request("http://127.0.0.1:8969/api/status",
-                                         headers={"Accept": "application/json"})
-            with urllib.request.urlopen(req, timeout=2) as response:
-                hub = json.loads(response.read(16384))
-            if Path(hub.get("installationRoot", "")).resolve() != self.root:
-                status["blocker"] = "Службы принадлежат другой установке McpGo."
-                return status
-        except (OSError, ValueError, KeyError):
-            status["blocker"] = "Локальный Dashboard не готов."
+        # Dashboard can briefly block its event loop while querying launchctl
+        # and Keychain. A 2-second HTTP timeout produced false negatives even
+        # though the actual terminal MCP server was responsive.
+        req = urllib.request.Request("http://127.0.0.1:8969/api/status",
+                                     headers={"Accept": "application/json"})
+        hub = None
+        for attempt in range(2):
+            try:
+                with urllib.request.urlopen(req, timeout=6) as response:
+                    hub = json.loads(response.read(16384))
+                break
+            except (OSError, ValueError, KeyError):
+                if attempt == 0:
+                    time.sleep(0.25)
+        if not isinstance(hub, dict):
+            status["blocker"] = ("Dashboard временно не ответил. Это не доказывает " +
+                                 "остановку MCP; повтори проверку.")
+            return status
+        if Path(hub.get("installationRoot", "")).resolve() != self.root:
+            status["blocker"] = "Службы принадлежат другой установке McpGo."
             return status
         config = self.appdata / "terminal/stateless-config.json"
         if config.is_file():
@@ -553,13 +638,31 @@ class SetupEngine:
                     "http://127.0.0.1:12848/" + mcp, {"terminal_exec"})
             except (OSError, ValueError, KeyError):
                 pass
+        browser_detail: dict[str, Any] = {}
         status["browser"] = self.probe_tools(
-            "http://127.0.0.1:8940/mcp", {"browser_tabs"}, verify_browser=True)
-        status["chrome"] = bool(hub.get("playwright", {}).get("mcpReady", False))
+            "http://127.0.0.1:8940/mcp", {"browser_tabs"}, verify_browser=True,
+            details=browser_detail)
+        # MCP initialization/tools-list is different from Chrome CDP tab
+        # enumeration. A frozen/discarded Chrome tab may delay CDP long after
+        # MCP itself has successfully initialized. Don't hide that distinction.
+        status["browserMcp"] = bool(browser_detail.get("mcpReady"))
+        status["chrome"] = bool(status["browser"])
+        if status["browserMcp"] and not status["browser"]:
+            status["browserDetail"] = (
+                "Playwright MCP работает, но запрос вкладок Chrome не завершился. "
+                "Проверь разрешение Remote Debugging в Chrome; если в браузере "
+                "много спящих вкладок, попробуй открыть одну из них и проверить снова."
+            )
+        elif not status["browserMcp"]:
+            status["browserDetail"] = (
+                "Playwright MCP пока не подтвердил initialize/tools-list. "
+                "Проверь запуск службы Browser и proxy."
+            )
         return status
 
     @staticmethod
-    def probe_tools(url: str, mandatory: set[str], verify_browser: bool = False) -> bool:
+    def probe_tools(url: str, mandatory: set[str], verify_browser: bool = False,
+                    details: dict | None = None) -> bool:
         import urllib.request
         from urllib.parse import urlparse
         parsed = urlparse(url)
@@ -580,7 +683,11 @@ class SetupEngine:
                 headers["mcp-session-id"] = session
             data = json.dumps(packet).encode()
             req = urllib.request.Request(url, data=data, method="POST", headers=headers)
-            with urllib.request.urlopen(req, timeout=4) as resp:
+            # Chrome can take several seconds to enumerate tabs in an
+            # already-running personal profile. A fixed four-second timeout
+            # caused false "Browser: not confirmed" statuses on healthy CDP.
+            timeout_seconds = 15 if verify_browser and method == "tools/call" else (6 if verify_browser else 4)
+            with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
                 session = resp.headers.get("Mcp-Session-Id", session)
                 contents = resp.read(1048576).decode("utf-8", errors="replace")
                 if request_id is None:
@@ -601,6 +708,8 @@ class SetupEngine:
                      .get("result", {}).get("tools", [])}
             if not mandatory.issubset(names) or "browser_run_code_unsafe" in names:
                 return False
+            if details is not None:
+                details["mcpReady"] = True
             if verify_browser:
                 result = send("tools/call", {
                     "name": "browser_tabs", "arguments": {"action": "list"}}, request_id=3)

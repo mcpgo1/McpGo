@@ -13,21 +13,26 @@
 
 **Обязательные статусы тестового отчёта:** PASS, FAIL, SKIPPED, NOT RUN и UNKNOWN. Нельзя называть SKIPPED/NOT RUN успешным результатом. Для каждого E2E должны быть timestamp, версия, окружение и шаги воспроизведения.
 
-## 2. Текущий набор автоматических тестов
+## 2. Текущий набор автоматических тестов (8 ноября 2026)
 
 ```bash
 cd /path/to/McpGo
 python3 -m unittest discover -s tests -v
 python3 -m unittest discover -s messaging/tests -v
-(cd autosend && node --test tests/*.test.mjs)
+node --test autosend/tests/*.test.mjs
+node --test playwright/tests/*.test.mjs
+node --test terminal/tests/*.test.*
 ```
 
-В референс-установке на 7 ноября 2026 выполнялись:
-- `tests/`: 7 PASS (terminal LaunchAgent и документация).
-- `messaging/tests/`: 16 PASS (логика очереди, роли, lifecycle, HTTP).
-- `autosend/tests/`: 43 PASS (включая тесты исторического extension transport).
+| Набор | PASS | Охват |
+|---|---:|---|
+| `tests/` | 34 | CLI, LaunchAgents, документация, DMG, безопасность |
+| `messaging/tests/` | 16 | SQLite, агенты, жизненный цикл |
+| `autosend/tests/` | 57 | CDP, crash-safe отправка, watchdog, HTTP |
+| `playwright/tests/` | 15 | shared session, browser receipts, URL guard |
+| `terminal/tests/` | 15 | durable jobs, идемпотентность, отмена, crash recovery |
 
-**Итого: 66 автоматических тестов PASS для этих трёх наборов.** Это не 66 независимых сценариев live-browser E2E; часть тестов использует fake DOM, mocks и совместимые старые транспорты.
+**Итого: 137 автоматических тестов PASS на изолированных тестовых данных.** Это не 137 независимых live E2E: в браузерных проверках используется fake MCP backend. Дополнительно прошли read-only local MCP initialize/tools/list/browser_tabs на существующей установке, но доступ PlaywrightHub из текущего ChatGPT MCP подключения вернул **UNAUTHORIZED**. Это не считается успешным remote E2E.
 
 ## 3. Синтаксическая и структурная проверка
 
@@ -84,9 +89,9 @@ codesign --verify --strict "McpGo.app"
 | URL проекта не совпадает | deferred | Отправка не выполнялась |
 | Страница авторизации/нет редактора | deferred | Не было клика |
 | Готовый тестовый чат | verified | Одна новая реплика пользователя |
-| Клик, но наблюдение прервалось | unknown | Автоматический повтор запрещён |
+| Клик, но наблюдение прервалось | verifying → verified/unknown | Дополнительные read-only проверки, без повторного Send |
 | Restart между preflight и click | безопасно восстанавливается | Нет дубликата |
-| Restart после click-committed | unknown | Нет повторной отправки |
+| Restart после click-committed с durable receipt | verifying | Проверка восстановлена, нет повторной отправки |
 | Chrome закрыт | deferred | Расписание ждёт |
 | Mac спал в момент расписания | позже либо skipped | Точная секунда не гарантируется |
 
@@ -113,11 +118,11 @@ codesign --verify --strict "McpGo.app"
 | Ad hoc codesign + plist | PASS | Developer ID + notarization |
 | Terminal tunnel regression | PASS | Clean install / actual MCP E2E |
 | Messaging unit/HTTP | PASS | Multi-process stress/backup |
-| AutoSend unit suite | PASS | Live ChatGPT E2E на новой версии UI |
-| Chrome CDP local proxy | Status alive | Full multi-session and security E2E |
-| Portable installer | NOT DONE | Требуется |
+| AutoSend unit / mock CDP / isolated HTTP suite | PASS (57) | Live ChatGPT E2E на новой версии UI |
+| Chrome CDP local proxy | Read-only MCP initialize/tools/list/browser_tabs PASS | Remote ChatGPT tunnel permission и live send E2E |
+| Portable installer | Packaging tests PASS; DMG сборка отдельно | Чистая установка на новом Mac |
 | Public dependency/SBOM scan | NOT DONE | Требуется |
-| License verification | NOT DONE | Требуется |
+| License verification | Автоматические проверки MIT/NOTICE PASS | Аудит лицензий всего bundle |
 | User data retention | NOT DONE | Требуется policy + тесты |
 
 ## 9. CI план

@@ -53,7 +53,11 @@ stateDiagram-v2
   checking --> sending: preflight passed / persist barrier
   sending --> scheduled: verified + enabled
   sending --> paused: verified + one-shot
-  sending --> unknown: ambiguous / interrupted
+  sending --> verifying: click-committed, proof not yet seen
+  verifying --> verifying: read-only poll, no Send
+  verifying --> scheduled: new user bubble verified
+  verifying --> unknown: deadline expires / proof not available
+  sending --> unknown: crash without persisted baseline
   unknown --> paused: user review + edit
 ```
 
@@ -61,7 +65,7 @@ stateDiagram-v2
 
 **Если agent busy:** это не поломка, расписание должно дождаться нового интервала.
 **Если page deferred:** проверить URL, login, editor, готовность DOM и состояние Chrome.
-**Если unknown:** **не** нажимать повтор и не включать расписание вслепую. Открыть точный чат и проверить наличие сообщения; после этого пользователь может изменить/переутвердить задание.
+**Если verifying:** только read-only наблюдение в том же чате до 180 секунд; Send не повторяется. **Если unknown:** **не** нажимать повтор и не включать расписание вслепую. Открыть точный чат и проверить наличие сообщения; после этого пользователь может изменить/переутвердить задание.
 **Если CDP недоступен:** проверить proxy 8940, Chrome remote debugging, потом `browser_tabs list`.
 **Если вкладка сменила URL:** не отправлять; вернуться к выбору правильного адресата.
 
@@ -83,7 +87,7 @@ stateDiagram-v2
 - launchd user services стартуют при входе пользователя согласно конкретным plist.
 - Во сне Mac не способен гарантировать доставку сообщения в точный назначенный момент.
 - CDP связывается с живым Chrome instance; после logout/close браузерная сессия недоступна.
-- Неизвестный результат click-committed после restart должен остаться `unknown`, а не превратиться в безопасную повторную отправку.
+- После restart click-committed с валидным receipt возобновляет только `verifying`; без baseline остаётся `unknown`. Повторного Send нет в обоих случаях.
 - Не считать отсутствие автоматической отправки во сне багом без специально реализованного wakeup/remote worker.
 
 ## 7. Процедура управляемого перезапуска
@@ -135,3 +139,7 @@ stateDiagram-v2
 При исправном Chrome CDP и доступном `tools/list` вызов `browser_tabs(list)` мог висеть до upstream timeout, если одна из вкладок не отвечала на `page.title()`. Устранено compatibility patch в `playwright/patch-playwright.mjs` и ограничением времени в `headerSnapshot`. Список больше не обязан ждать заголовок проблемной вкладки. Патч проверяется при старте backend; установка из чистого Node lockfile автоматически применяет его.
 
 Проверка без изменения вкладок: `PLAYWRIGHT_MCP_URL=http://localhost:8940/mcp PLAYWRIGHT_MCP_REJECT_UNSAFE=1 PLAYWRIGHT_MCP_VERIFY_TABS=1 node playwright/probe.mjs`. Если проходит, Browser MCP и безопасный proxy работают. Отдельная диагностика Chrome `DevToolsActivePort` доказывает только доступность WebSocket и не является заменой этого теста.
+
+## Явный обрыв ChatGPT
+
+После двух наблюдений стабильного уведомления «Соединение прервано» (~15–30 секунд) один раз обновить именно открытую вкладку, повторно проверить готовность, при успехе немедленно поставить пользовательский текст продолжения на отправку. Не нажимать Stop, Regenerate, Send во время восстановления. При сохранении аварии блокировать отправку. Это отдельное состояние от долгой генерации.
