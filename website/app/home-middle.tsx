@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ArrowRight, ArrowUpRight, Check, CheckCircle2, ChevronDown, Cpu, Download, Globe2, LockKeyhole, Monitor, ShieldCheck, Sparkles, Terminal } from "lucide-react";
+import { ArrowUpRight, Check, CheckCircle2, ChevronDown, Cpu, Download, Globe2, LockKeyhole, ShieldCheck, Terminal } from "lucide-react";
 import { CopySnippet } from "./components";
 import { DOCS, DMG_DOWNLOAD_URL, steps } from "./data";
 import { ArchitectureFlow } from "./architecture-flow";
@@ -32,19 +32,18 @@ export function Install(){
      <div className="requirements-bundled"><CheckCircle2 size={16}/> Node.js, Python и локальные компоненты уже включены в DMG.</div>
      <a href={`${DOCS}/ONBOARDING.md`} target="_blank" rel="noopener noreferrer">Подробно о мастере подключения <ArrowUpRight size={15}/></a>
     </div>
-    <p className="install-caution"><span>!</span> DMG уже подписан и нотарифицирован Apple. Публичное скачивание откроется после проверки на чистом Mac и публикации релиза.</p>
+    <p className="install-caution"><span>!</span> McpGo 2.0.3 уже опубликован: DMG подписан и нотарифицирован Apple. Версия рассчитана на macOS 14+ и Apple Silicon.</p>
    </aside>
    <div className="steps">
      <div className="dmg-install-guide">
        <div className="dmg-install-label"><ShieldCheck size={16}/> ПОДПИСАНО И НОТАРИФИЦИРОВАНО APPLE</div>
        <h3>Три действия — и можно настраивать.</h3>
        <div className="dmg-install-items">
-         <div><strong>01</strong><span><b>Скачай</b> McpGo.dmg после выхода публичного релиза.</span></div>
+         <div><strong>01</strong><span><b>Скачай</b> McpGo 2.0.3 (.dmg) по кнопке ниже.</span></div>
          <div><strong>02</strong><span><b>Перетащи</b> McpGo.app в папку «Программы».</span></div>
          <div><strong>03</strong><span><b>Открой</b> приложение и выбери «Первое подключение».</span></div>
        </div>
-       {DMG_DOWNLOAD_URL ? <a href={DMG_DOWNLOAD_URL} className="btn btn-primary"><Download size={17}/> Скачать McpGo.dmg <ArrowUpRight size={16}/></a>
-       : <p className="dmg-awaiting">DMG готов и нотарифицирован. Ссылка на скачивание появится после проверки на чистом Mac и размещения релиза.</p>}
+       <a href={DMG_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="btn btn-primary"><Download size={17}/> Скачать McpGo 2.0.3 (.dmg) <ArrowUpRight size={16}/></a>
      </div>
      <div className="tunnel-focus">
        <div className="tunnel-focus-head"><LockKeyhole size={19}/><div><strong>Самое главное — два Secure MCP Tunnel</strong><span>Мастер проведёт через их создание, ключи доступа и подключение к ChatGPT.</span></div></div>

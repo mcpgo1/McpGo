@@ -31,7 +31,7 @@ export function Hero(){
     <div className="hero-benefit"><span className="hero-benefit-icon"><Zap size={22}/></span><div><strong>Кодинг как с Codex</strong><small>те же возможности</small></div></div>
     <div className="hero-benefit"><span className="hero-benefit-icon"><Monitor size={22}/></span><div><strong>Один чат везде</strong><small>без лагов и сопряжений</small></div></div>
    </div>
-   <div className="hero-ctas"><a href={DMG_DOWNLOAD_URL || "#install"} className="btn btn-primary"><Download size={18}/> {DMG_DOWNLOAD_URL ? "Скачать McpGo .dmg" : "Начать установку"} <ArrowRight size={17}/></a><a href={GITHUB} target="_blank" rel="noopener noreferrer" className="btn btn-secondary"><Github size={19}/> Смотреть на GitHub</a></div>
+   <div className="hero-ctas"><a href={DMG_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer" className="btn btn-primary"><Download size={18}/> Скачать McpGo 2.0.3 <ArrowRight size={17}/></a><a href={GITHUB} target="_blank" rel="noopener noreferrer" className="btn btn-secondary"><Github size={19}/> Смотреть на GitHub</a></div>
    <div className="hero-reassurance"><span><CheckCircle2 size={15}/> Бесплатно</span><span><CheckCircle2 size={15}/> Open source / MIT</span><span><CheckCircle2 size={15}/> macOS 14+ / Apple Silicon</span></div>
   </div>
   <div className="hero-visual"><div className="visual-mesh"/><div className="orbit orbit-one"/><div className="orbit orbit-two"/><ChatSiteExamplePreview/><p className="hero-shot-caption"><Sparkles size={16} aria-hidden="true"/><span>На создание этого сайта и <strong>приложения McpGo не было потрачено ни одного токена :D</strong></span></p></div>
