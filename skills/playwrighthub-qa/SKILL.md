@@ -41,3 +41,11 @@ McpGo Scheduler отправляет сообщения по таймеру че
 - AutoSend теперь передаёт action ID и URL заданного чата для каждой попытки Send; итог подтверждается **новой пользовательской репликой**. При сомнении `verifying/unknown`, а не повтор.
 
 Подробности: `docs/RELIABILITY.md` и `playwright/action-guard.mjs`. Указанные HTTP-заголовки — для программных клиентов, обычный ChatGPT browser-tool интерфейс не даёт произвольно добавлять заголовки к tool-call.
+
+### Повторные запросы Allow
+
+Не вызывай browser_tabs в цикле проверки фонового статуса. Проверяй MCP
+транспорт отдельно, а доступ Chrome — явным browser_tabs(list) после согласия
+пользователя. При `Socket directory path is too long` проверь короткий
+PWTEST_SOCKETS_DIR в launcher; не отключай подтверждение Chrome и не меняй профиль.
+Подробности и откат: `docs/BROWSER.md`, раздел диагностики длинного пути.

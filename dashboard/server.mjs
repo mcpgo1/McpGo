@@ -97,7 +97,7 @@ async function mcpReadiness(){
   if(mcpHealthFlight)return mcpHealthFlight;
   mcpHealthFlight=(async()=>{
     let ready=false;
-    try{ready=await probeMcp();}catch{}
+    try{ready=await probeMcp(undefined,undefined,{verifyBrowser:false});}catch{}
     mcpHealthCache={value:ready,validUntil:Date.now()+15000};
     return ready;
   })();

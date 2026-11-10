@@ -25,12 +25,12 @@
 | `scripts/dev_preview_macos.sh` | 214 | `43a59eb0c00b950a` |
 | `scripts/launch-macos.sh` | 14 | `7d72876cae38bdef` |
 | `scripts/setup_macos.py` | 187 | `5750af3e6cd14a8e` |
-| `dashboard/app.js` | 34 | `7db8ef961bc65564` |
+| `dashboard/app.js` | 34 | `03f28a9c88f289f3` |
 | `dashboard/index.html` | 13 | `f4e443db7adecb7f` |
-| `dashboard/mcp-health.mjs` | 41 | `75681fd13113463e` |
-| `dashboard/server.mjs` | 224 | `f1252da063996e66` |
+| `dashboard/mcp-health.mjs` | 44 | `afe6dec6502e580c` |
+| `dashboard/server.mjs` | 224 | `c9706e57171473bc` |
 | `dashboard/style.css` | 1 | `b72439eb34f8ee3e` |
-| `dashboard/tests/mcp-health.test.mjs` | 25 | `6150f752c091a257` |
+| `dashboard/tests/mcp-health.test.mjs` | 49 | `96f728fb8302f19f` |
 | `terminal/dashboard.css` | 23 | `ff26af3551f062cf` |
 | `terminal/dashboard.html` | 48 | `625136ba5e9b4b49` |
 | `terminal/dashboard.js` | 111 | `d417538c9648d1fd` |
@@ -53,7 +53,7 @@
 | `playwright/restricted-proxy.mjs` | 341 | `9182bf606059ccfd` |
 | `playwright/smoke.mjs` | 66 | `fc3b86bd1bcf3b65` |
 | `playwright/start-tunnel.sh` | 34 | `e7137fc1a191250f` |
-| `playwright/start.sh` | 19 | `c1b7937da492de41` |
+| `playwright/start.sh` | 24 | `9e71f43e12026ae7` |
 | `playwright/test-access.mjs` | 9 | `95e383ec661685c6` |
 | `playwright/tests/action-guard.test.mjs` | 170 | `e96d5cd71adb8cfd` |
 | `playwright/tests/metadata-timeout.test.mjs` | 47 | `7d9d4086c136cd68` |
@@ -74,7 +74,7 @@
 | `messaging/tests/test_bus.py` | 60 | `fe68364e10a22133` |
 | `messaging/tests/test_http.py` | 93 | `5e2d25c3c4ca249d` |
 | `messaging/tests/test_lifecycle.py` | 100 | `5c4129c953f89b7f` |
-| `launchers/browser.mjs` | 12 | `d8438ecacaa6ece2` |
+| `launchers/browser.mjs` | 19 | `8c9f53781f6b3857` |
 | `launchers/tunnel.mjs` | 44 | `6be75a209c2ef9ae` |
 | `launchagents/com.chatterminalhub.oneshot.plist` | 23 | `8acc4462df168bc5` |
 | `launchagents/com.chatterminalhub.server.plist` | 41 | `fae448e3c1945a2b` |
@@ -86,7 +86,7 @@
 | `launchagents/com.mcphub.playwright.proxy.plist` | 35 | `e4760e4e058c2f82` |
 | `launchagents/com.mcphub.playwright.tunnel.plist` | 34 | `0fe40e8b964c0092` |
 | `tests/test_autosend_ui_refresh.py` | 22 | `c3006466e0766479` |
-| `tests/test_browser_launcher.py` | 42 | `83164b5bb4bd6880` |
+| `tests/test_browser_launcher.py` | 82 | `df0c5c03c44b95fc` |
 | `tests/test_dmg_packaging.py` | 121 | `c98f0b577aa0b57b` |
 | `tests/test_docs_release.py` | 66 | `e8443cd6e6add831` |
 | `tests/test_documentation.py` | 71 | `dff2b6d0b67b88ef` |
