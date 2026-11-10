@@ -3,7 +3,7 @@
  * TCP connect is NOT sufficient: a cached MCP session can have expired.
  * Never calls browser mutation tools or opens a ChatGPT conversation.
  */
-export async function probeMcp(url='http://127.0.0.1:8940/mcp',fetchImpl=fetch){
+export async function probeMcp(url='http://127.0.0.1:8940/mcp',fetchImpl=fetch,{verifyBrowser=true}={}){
   let sid='';
   let id=0;
   async function send(method,params){
@@ -31,6 +31,9 @@ export async function probeMcp(url='http://127.0.0.1:8940/mcp',fetchImpl=fetch){
   const names=list?.result?.tools?.map(x=>x.name)||[];
   if(!names.includes('browser_tabs')||!names.includes('browser_snapshot')||
     names.includes('browser_run_code_unsafe'))throw Error('MCP tools/list invalid');
+  // Background status checks must not initiate Chrome debugging consent.
+  // Explicit diagnostics retain the full browser connection check.
+  if(!verifyBrowser)return true;
   // Tools can be advertised while Chrome CDP is disconnected.
   // A read-only tab listing verifies the actual browser connection.
   const tabs=await send('tools/call',{name:'browser_tabs',arguments:{action:'list'}});

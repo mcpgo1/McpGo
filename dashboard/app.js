@@ -19,7 +19,7 @@ function render(data){
   mark('playwright-browser',p.browser.running&&p.backend,p.backend?'Порт открыт':'Не запущен',p.browser.running&&!p.backend);
   mark('playwright-proxy',p.proxy.running&&p.proxyReady&&p.mcpReady===true,p.proxyReady?(p.mcpReady===true?'MCP работает':'MCP недоступен'):'Не запущен',p.proxy.running&&p.mcpReady!==true);
   mark('playwright-tunnel',p.tunnel.running,p.tunnel.running?'Процесс запущен':p.configured?'Не запущен':'Не настроен',!p.configured);
-  $('playwright-hint').textContent=!p.configured?'Для туннеля не хватает сохранённой конфигурации. Подробности в README.':'После перезагрузки нажмите «Запустить». Туннель стартует после прокси.';
+  $('playwright-hint').textContent=!p.configured?'Для туннеля не хватает сохранённой конфигурации. Подробности в README.':'Статус MCP проверяет транспорт. Доступ к вкладкам Chrome требует отдельного разрешения в браузере.';
   $('updated').textContent='Статус: '+new Date(data.updatedAt).toLocaleTimeString('ru-RU');
 }
 async function refresh(){try{const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error('Ошибка связи с панелью');render(await response.json());}catch(e){flash(e.message,true);}}
