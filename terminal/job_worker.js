@@ -6,6 +6,7 @@ const {spawn}=require('node:child_process');
 const crypto=require('node:crypto');
 const runtime=require('./job_runtime.js');
 const locks=require('./resource_locks.js');
+const platform=require('./platform.js');
 
 const job_id=process.argv[2];
 const folder=runtime.dir(job_id);
@@ -72,7 +73,7 @@ function boundedAppend(name,chunk){
  }
 }
 function killJob(signal){
- if(child?.pid){try{process.kill(-child.pid,signal)}catch{}}
+ if(child?.pid)platform.killTree(child.pid,signal);
 }
 function finalize(code,signal){
  if(finished)return;
@@ -121,14 +122,11 @@ function finalize(code,signal){
  }
 }
 update({state:'starting',runner_pid:process.pid,created_at:state.created_at,started_at:new Date().toISOString()});
-const env={
- HOME:os.homedir(),USER:os.userInfo().username,LOGNAME:os.userInfo().username,
- PATH:'/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
- LANG:'en_US.UTF-8',TMPDIR:os.tmpdir()
-};
+const env=platform.childEnv();
 let timeoutTimer=null,killTimer=null;
 try {
- child=spawn('/bin/zsh',['-lc',request.command],{
+ const shell=platform.commandSpec(request.command);
+ child=spawn(shell.file,shell.args,{
   cwd:request.cwd,env,detached:true,stdio:['ignore','pipe','pipe']
  });
  update({state:'running',pid:child.pid??null,heartbeat_at:new Date().toISOString(),last_output_at:null});

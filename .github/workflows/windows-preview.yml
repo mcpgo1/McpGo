@@ -1,0 +1,59 @@
+name: Windows preview
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'windows/**'
+      - 'terminal/**'
+      - 'playwright/**'
+      - '.github/workflows/windows-preview.yml'
+  pull_request:
+    paths:
+      - 'windows/**'
+      - 'terminal/**'
+      - 'playwright/**'
+      - '.github/workflows/windows-preview.yml'
+permissions:
+  contents: read
+jobs:
+  verify-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            windows/package-lock.json
+            playwright/package-lock.json
+      - name: Install Playwright runtime (locked)
+        shell: pwsh
+        run: npm ci --prefix playwright --ignore-scripts --no-audit --no-fund
+      - name: Patch Playwright snapshot timeout
+        shell: pwsh
+        run: node playwright/patch-playwright.mjs
+      - name: Install Windows app
+        shell: pwsh
+        run: npm ci --prefix windows --no-audit --no-fund
+      - name: Windows regressions
+        shell: pwsh
+        run: |
+          node --test windows/tests terminal/tests/platform.test.cjs
+          node --check windows/app/main.cjs
+          node --check windows/app/runtime.cjs
+          node --check windows/app/preload.cjs
+          node --check terminal/stateless_server.js
+      - name: Assemble unsigned NSIS preview
+        shell: pwsh
+        working-directory: windows
+        run: npm run dist:win
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: McpGo-Windows-unsigned-preview
+          path: release/windows/*.exe
+          if-no-files-found: error
+          retention-days: 7

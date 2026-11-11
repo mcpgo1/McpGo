@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>McpGo для Windows</title><link rel="stylesheet" href="style.css"></head>
+<body><main>
+<header><div class="brand"><div class="logo">M</div><div><h1>McpGo</h1><small>Локальный агент для Windows</small></div></div><span class="tag">WINDOWS PREVIEW</span></header>
+<section class="intro"><h2>ChatGPT работает на вашем компьютере</h2><p>Терминал PowerShell, автоматизация Chrome и Edge, параллельные операции и защищённые MCP-туннели.</p></section>
+<section class="panel"><div class="heading"><h3>Компоненты</h3><button class="minor" id="restart">Перезапустить</button></div>
+<div class="services">
+ <div><span>PowerShell / MCP</span><span id="state-terminal">—</span></div>
+ <div><span>Playwright / Браузер</span><span id="state-browser">—</span></div>
+ <div><span>Защита браузерных действий</span><span id="state-proxy">—</span></div>
+ <div><span>Туннель терминала</span><span id="state-terminalTunnel">—</span></div>
+ <div><span>Туннель браузера</span><span id="state-browserTunnel">—</span></div>
+</div></section>
+<section class="panel"><div class="heading"><h3>Подключение MCP</h3><span class="subtle">Ключи шифруются средствами Windows</span></div>
+<p class="hint">Создайте два Secure MCP Tunnels в ChatGPT и укажите идентификаторы и ключи. McpGo не передаёт ключи сторонним серверам.</p>
+<form id="settings">
+<div class="fields">
+<div class="group"><label for="terminal-id">Terminal · Tunnel ID</label><input id="terminal-id" spellcheck="false" placeholder="tunnel_..." autocomplete="off">
+<label for="terminal-key">Terminal · API key</label><input id="terminal-key" type="password" placeholder="Пустое поле — сохранить текущий" autocomplete="off"></div>
+<div class="group"><label for="browser-id">Browser · Tunnel ID</label><input id="browser-id" spellcheck="false" placeholder="tunnel_..." autocomplete="off">
+<label for="browser-key">Browser · API key</label><input id="browser-key" type="password" placeholder="Пустое поле — сохранить текущий" autocomplete="off"></div>
+</div>
+<div class="bottom"><div class="group browser"><label for="browser">Браузер</label>
+<select id="browser"><option value="chrome">Google Chrome</option><option value="msedge">Microsoft Edge</option></select></div>
+<label class="switch"><input type="checkbox" id="autoStart"> Автозапуск с Windows</label></div>
+<div class="actions"><button type="button" class="minor" id="browser-docs">Расширение Playwright</button><button type="submit" class="primary">Сохранить и подключить</button></div>
+</form></section>
+<p class="status" id="message" role="status">Загрузка...</p>
+<footer>После закрытия окна McpGo остаётся в системном трее. SSH и файлы доступны через PowerShell.</footer>
+</main><script src="renderer.js"></script></body></html>

@@ -1,0 +1,78 @@
+{
+  "name": "mcpgo-windows",
+  "version": "2.1.0-preview.1",
+  "private": true,
+  "description": "McpGo Windows desktop agent",
+  "main": "app/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests",
+    "dist:win": "electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "45.3.0",
+    "electron-builder": "26.18.1"
+  },
+  "build": {
+    "appId": "ru.mcpgo.desktop",
+    "productName": "McpGo",
+    "directories": {
+      "output": "../release/windows"
+    },
+    "files": [
+      "app/*.cjs",
+      "app/*.js",
+      "app/*.html",
+      "app/*.css",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../terminal",
+        "to": "mcpgo-runtime/terminal",
+        "filter": [
+          "platform.js",
+          "stateless_server.js",
+          "job_runtime.js",
+          "job_worker.js",
+          "resource_locks.js",
+          "resource_policy.js",
+          "mcp-version.json"
+        ]
+      },
+      {
+        "from": "../playwright",
+        "to": "mcpgo-runtime/playwright",
+        "filter": [
+          "action-guard.mjs",
+          "restricted-proxy.mjs",
+          "node_modules/**/*"
+        ]
+      },
+      {
+        "from": "../native/McpGoMark.png",
+        "to": "mcpgo-runtime/native/McpGoMark.png"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/mcpgo.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "McpGo"
+    }
+  }
+}

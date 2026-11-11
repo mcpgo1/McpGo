@@ -42,18 +42,20 @@
 | `terminal/dashboard.html` | 48 | `625136ba5e9b4b49` |
 | `terminal/dashboard.js` | 111 | `d417538c9648d1fd` |
 | `terminal/doctor-tunnel.sh` | 9 | `75ee2ac7c68d68dc` |
-| `terminal/job_runtime.js` | 375 | `72db80882826c4b0` |
-| `terminal/job_worker.js` | 177 | `96491f00fe5d0b69` |
+| `terminal/job_runtime.js` | 375 | `1e5d667f507673f8` |
+| `terminal/job_worker.js` | 175 | `a2704f7127917a2e` |
+| `terminal/platform.js` | 44 | `759e08d519193655` |
 | `terminal/pty_worker.py` | 101 | `b0c583da2e789dae` |
-| `terminal/resource_locks.js` | 115 | `f1ee2342a4a1278c` |
+| `terminal/resource_locks.js` | 115 | `9ce453171f65a5be` |
 | `terminal/resource_policy.js` | 41 | `b61ce30415f60633` |
 | `terminal/restart-when-idle.sh` | 15 | `8bc8901821d88efc` |
 | `terminal/run-tunnel.sh` | 18 | `bef8ac560df5a4df` |
 | `terminal/save-tunnel-key.sh` | 8 | `f43d8533d7294f74` |
-| `terminal/server.js` | 201 | `41ed0c46a5b96b67` |
-| `terminal/stateless_server.js` | 203 | `5129605c1112f5ae` |
+| `terminal/server.js` | 202 | `f69bbb01bee140a7` |
+| `terminal/stateless_server.js` | 204 | `a3df7da03753b81e` |
 | `terminal/stdio_mcp.js` | 42 | `9845a8f09227f3c0` |
 | `terminal/tests/job-runtime.test.cjs` | 169 | `c9186d06e9a7c7c5` |
+| `terminal/tests/platform.test.cjs` | 36 | `3e946cf27fc5cd05` |
 | `terminal/tests/resource-locks.test.cjs` | 47 | `183d0b37ff502f1c` |
 | `terminal/tests/resource-policy.test.cjs` | 27 | `ff465931e3fb420c` |
 | `terminal/tests/stateless-mcp.test.mjs` | 131 | `3c73189907c000a9` |
@@ -112,9 +114,23 @@
 | `tests/test_license.py` | 36 | `ae9ff572a78ee89f` |
 | `tests/test_onboarding_safety.py` | 86 | `b9ceb6c28d9a236f` |
 | `tests/test_terminal_tunnel.py` | 85 | `dbff99ed62fcaebb` |
-| `tools/generate_source_inventory.py` | 72 | `53b34a7fe59ce01e` |
+| `tools/generate_source_inventory.py` | 73 | `eb32c5639275c1f1` |
 | `tools/sync_readme.py` | 23 | `fa026188f89f64b8` |
+| `windows/README.md` | 50 | `14d92e675ff926b3` |
+| `windows/app/index.html` | 33 | `352e9f5aecd279b0` |
+| `windows/app/main.cjs` | 57 | `b024fa4f30e837e9` |
+| `windows/app/preload.cjs` | 14 | `4c34b3eebd1d6689` |
+| `windows/app/renderer.js` | 40 | `dbf92b2f6af6d00e` |
+| `windows/app/runtime.cjs` | 187 | `14f7971a68baf2bb` |
+| `windows/app/settings.cjs` | 92 | `386fe1c2eeef52ab` |
+| `windows/app/style.css` | 1 | `9e1dc9a73559593d` |
+| `windows/package-lock.json` | 3587 | `966b6a73d980ac34` |
+| `windows/package.json` | 78 | `50883ef15932a096` |
+| `windows/tests/package.test.cjs` | 43 | `8db5b4194e3f4cf4` |
+| `windows/tests/runtime.test.cjs` | 39 | `850402ab7b9e2fcf` |
+| `windows/tests/settings.test.cjs` | 72 | `4c19b0e01187a81a` |
+| `windows/tests/supervisor.test.cjs` | 48 | `0f743ccb41cfc1d5` |
 
-Всего файлов в выбранном source-only срезе: **108**.
+Всего файлов в выбранном source-only срезе: **124**.
 
 Важно: отсутствие файла в этом инвентаре не доказывает отсутствие выполняемого кода где-либо на диске. Исторические или генерируемые компоненты намеренно исключены; для публичного исходного архива требуется отдельный полный аудит tree.

@@ -6,10 +6,11 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const jobs = require('./job_runtime.js');
+const platform=require('./platform.js');
 const MCP_VERSION=require('./mcp-version.json').version;
 
 const DIR = __dirname;
-const CONFIG = process.env.MCPGO_ONESHOT_CONFIG || path.join(os.homedir(),'Library','Application Support','McpGo','terminal','stateless-config.json');
+const CONFIG = process.env.MCPGO_ONESHOT_CONFIG || path.join(platform.dataRoot(),'terminal','stateless-config.json');
 fs.mkdirSync(path.dirname(CONFIG),{recursive:true,mode:0o700});
 const PORT = Number(process.env.MCPGO_ONESHOT_PORT || 12848);
 if(!Number.isInteger(PORT)||PORT<1024||PORT>65535)throw Error('INVALID_ONESHOT_PORT');
@@ -27,7 +28,7 @@ if (!/^exec\/[a-f0-9]{64}$/.test(config.mcpPath)) {
 
 const tool = {
   name: 'terminal_exec',
-  description: 'Execute a macOS command via the persistent McpGo job runtime (default 30 sec, max 90 sec). Each call automatically gets job_id/operation_id, even if you did not provide one. After connection loss call mcpgo_recover/job_status: NEVER blindly re-execute. Optional stable request_id prevents duplicate execution; optional resource_key locks known conflicting resources only. Four unrelated agents remain parallel.',
+  description: 'Execute a command on the user-owned computer (Windows PowerShell or macOS zsh) via the persistent McpGo job runtime (default 30 sec, max 90 sec). Each call automatically gets job_id/operation_id, even if you did not provide one. After connection loss call mcpgo_recover/job_status: NEVER blindly re-execute. Optional stable request_id prevents duplicate execution; optional resource_key locks known conflicting resources only. Four unrelated agents remain parallel.',
   inputSchema: {
     type: 'object',
     properties: {

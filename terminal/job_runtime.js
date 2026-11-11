@@ -5,9 +5,10 @@ const os=require('node:os');
 const crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
 const locks=require('./resource_locks.js');
+const platform=require('./platform.js');
 const {classifyCommand}=require('./resource_policy.js');
 
-const ROOT=process.env.MCPGO_JOB_ROOT||path.join(os.homedir(),'Library','Application Support','ChatTerminalHub','OneShotJobs');
+const ROOT=platform.jobRoot();
 const WORKER=path.join(__dirname,'job_worker.js');
 const MAX_DURATION_MS=4*60*60*1000;
 const JOB_ID_PATTERN=/^[a-f0-9]{48}$/;
@@ -152,8 +153,7 @@ function startJob(args){
  for(const name of ['stdout.log','stderr.log'])fs.writeFileSync(path.join(folder,name),'',{mode:0o600,flag:'wx'});
  const child=spawn(process.execPath,[WORKER,job_id],{
    cwd:__dirname,detached:true,stdio:'ignore',
-   env:{MCPGO_JOB_ROOT:ROOT,HOME:os.homedir(),USER:os.userInfo().username,LOGNAME:os.userInfo().username,
-     PATH:'/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',LANG:'en_US.UTF-8',TMPDIR:os.tmpdir()}
+   env:{...platform.childEnv(),MCPGO_JOB_ROOT:ROOT}
  });
  child.on('error',e=>{
   try {
@@ -315,9 +315,9 @@ function logs(args){
 const tools=[
  {name:'mcpgo_recover',description:'FIRST read-only tool after MCP reconnect or lost response. Lists recent persistent operations and currently locked resources, without rerunning ANY command. Use job_status or job_logs to inspect an existing operation.',inputSchema:{type:'object',properties:{limit:{type:'integer',minimum:1,maximum:30}},additionalProperties:false}},
  {name:'resource_lock_status',description:'Read-only inspect a known resource_key or list locks. Locks only apply to explicitly labeled McpGo jobs; never releases a running or uncertain operation.',inputSchema:{type:'object',properties:{resource_key:{type:'string'},limit:{type:'integer',minimum:1,maximum:100}},additionalProperties:false}},
- {name:'job_start',description:'Start a durable detached macOS command for long-running tests (up to 4 hours). Each command gets a persistent job_id/operation_id. After disconnection use mcpgo_recover and job_status; NEVER rerun an uncertain operation. Use optional request_id for exact idempotency and resource_key only for known conflicting resources. Four independent tasks can run concurrently.',
+ {name:'job_start',description:'Start a durable detached command (Windows PowerShell or macOS zsh) for long-running tests (up to 4 hours). Each command gets a persistent job_id/operation_id. After disconnection use mcpgo_recover and job_status; NEVER rerun an uncertain operation. Use optional request_id for exact idempotency and resource_key only for known conflicting resources. Four independent tasks can run concurrently.',
  inputSchema:{type:'object',properties:{
- command:{type:'string',description:'Noninteractive /bin/zsh -lc command'},
+ command:{type:'string',description:'Noninteractive command (PowerShell on Windows, zsh on macOS)'},
  cwd:{type:'string',description:'Absolute cwd; use an existing absolute directory under your control'},
  timeout_ms:{type:'integer',minimum:1000,maximum:14400000,description:'Max runtime in ms; default 1200000 (20 minutes)'},
  request_id:{type:'string',minLength:8,maxLength:128,description:'Optional stable client-generated key. Repeating same key never executes again; if omitted, recover generated job_id via mcpgo_recover before reissuing.'},

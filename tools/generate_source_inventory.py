@@ -21,6 +21,7 @@ DIRECTORIES = {
     "launchagents": {".plist"},
     "tests": {".py"},
     "tools": {".py"},
+    "windows": {".cjs", ".js", ".html", ".css", ".json", ".md"},
 }
 EXCLUDE_PATH_PARTS = {
     "legacy", "node_modules", ".cache", "artifacts", "logs",
