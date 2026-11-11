@@ -24,6 +24,7 @@ function commandSpec(command, platform=process.platform) {
   if(encoded.length>24576) throw Error('WINDOWS_COMMAND_TOO_LONG');
   return {file:'powershell.exe',args:['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',encoded]};
 }
+function commandDetached(platform=process.platform) { return !isWindows(platform); }
 function childEnv(platform=process.platform, env=process.env, home=os.homedir()) {
   const username=os.userInfo().username;
   if(isWindows(platform)) return {...env,HOME:home,USER:username,LOGNAME:username,
@@ -41,4 +42,4 @@ function killTree(pid, signal='SIGTERM', platform=process.platform) {
   }
   try { process.kill(-pid,signal);return true; } catch { return false; }
 }
-module.exports={isWindows,dataRoot,jobRoot,commandSpec,childEnv,killTree};
+module.exports={isWindows,dataRoot,jobRoot,commandSpec,commandDetached,childEnv,killTree};

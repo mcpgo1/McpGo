@@ -36,3 +36,9 @@ test('process tree terminator fails closed on invalid PID',()=>{
  assert.equal(p.killTree(0),false);
  assert.equal(p.killTree(-1),false);
 });
+
+test('Windows PowerShell captures redirected output; macOS shell retains isolated process group',()=>{
+ assert.equal(p.commandDetached('win32'),false);
+ assert.equal(p.commandDetached('darwin'),true);
+ assert.equal(p.commandDetached('linux'),true);
+});

@@ -102,3 +102,22 @@ If organization policy blocks unsigned executables, use the source build or
 wait for a permitted distribution method.
 
 Windows ARM64 is not included in this x64 release. WSL is not required.
+
+
+## Releasing a free unsigned Windows Preview
+
+From a clean, pushed `main` commit, the **Windows-native workflow** must
+succeed, including ConPTY, one-shot PowerShell output and embedded Python/SQLite.
+A Mac cross-compiled installer must never be published as a substitute.
+
+- `./tools/publish-windows-preview.sh --prepare` downloads the actual
+  Windows CI artifact from the successful job for this exact commit, checks
+  the Windows PE header and produces an adjacent `.sha256` manifest.
+- Update `app/windows-release.ts` in the separate website repository to
+  **exactly** the staged hash and deploy the website.
+- `./tools/publish-windows-preview.sh --publish` re-downloads the same CI
+  artifact and compares its digest to the staged file before creating a
+  **prerelease** with the installer and checksum.
+
+No paid code-signing certificate, unattended updater or SmartScreen bypass.
+The release process refuses to overwrite an existing GitHub release.

@@ -44,8 +44,8 @@
 | `terminal/doctor-tunnel.sh` | 9 | `75ee2ac7c68d68dc` |
 | `terminal/files_tools.cjs` | 139 | `520a611f2671f344` |
 | `terminal/job_runtime.js` | 375 | `1e5d667f507673f8` |
-| `terminal/job_worker.js` | 175 | `a2704f7127917a2e` |
-| `terminal/platform.js` | 44 | `759e08d519193655` |
+| `terminal/job_worker.js` | 177 | `e2a7edcb4b136a69` |
+| `terminal/platform.js` | 45 | `d2a2980aa6b6ccf5` |
 | `terminal/pty_worker.py` | 101 | `b0c583da2e789dae` |
 | `terminal/pty_worker_win.js` | 58 | `6e8adffdeba26eb7` |
 | `terminal/resource_locks.js` | 115 | `9ce453171f65a5be` |
@@ -60,7 +60,7 @@
 | `terminal/tests/conpty-worker.test.cjs` | 39 | `aea67d8edb2e59ca` |
 | `terminal/tests/files-tools.test.cjs` | 53 | `8ebf6b8ca740aaad` |
 | `terminal/tests/job-runtime.test.cjs` | 169 | `c9186d06e9a7c7c5` |
-| `terminal/tests/platform.test.cjs` | 38 | `5ca0d782fc541ebf` |
+| `terminal/tests/platform.test.cjs` | 44 | `640becf3dc739b69` |
 | `terminal/tests/resource-locks.test.cjs` | 47 | `183d0b37ff502f1c` |
 | `terminal/tests/resource-policy.test.cjs` | 27 | `ff465931e3fb420c` |
 | `terminal/tests/stateful-bridge.test.cjs` | 43 | `3699cb69d1d37301` |
@@ -122,7 +122,7 @@
 | `tests/test_terminal_tunnel.py` | 85 | `dbff99ed62fcaebb` |
 | `tools/generate_source_inventory.py` | 73 | `e2ac17dd11701d9f` |
 | `tools/sync_readme.py` | 23 | `fa026188f89f64b8` |
-| `windows/README.md` | 104 | `eb5a766327349505` |
+| `windows/README.md` | 123 | `07908c2441dd37a9` |
 | `windows/app/index.html` | 64 | `43bf1d6a18da9298` |
 | `windows/app/local-api.cjs` | 40 | `0a8f02f165301dc2` |
 | `windows/app/main.cjs` | 98 | `fc4c2e5be9fcbbbd` |
@@ -137,7 +137,7 @@
 | `windows/package-lock.json` | 3682 | `25d0d938c0d200c9` |
 | `windows/package.json` | 138 | `465f3e20172d5b92` |
 | `windows/prepare-runtime.py` | 106 | `2a4f75319f0ddac8` |
-| `windows/tests/native-integration.test.cjs` | 100 | `f9e942fec9b85580` |
+| `windows/tests/native-integration.test.cjs` | 94 | `567abc39eca290ac` |
 | `windows/tests/package.test.cjs` | 43 | `3107c348cad02403` |
 | `windows/tests/python-runtime.test.cjs` | 48 | `9ec42ea867eb3cc9` |
 | `windows/tests/runtime.test.cjs` | 39 | `850402ab7b9e2fcf` |

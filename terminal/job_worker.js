@@ -127,7 +127,9 @@ let timeoutTimer=null,killTimer=null;
 try {
  const shell=platform.commandSpec(request.command);
  child=spawn(shell.file,shell.args,{
-  cwd:request.cwd,env,detached:true,stdio:['ignore','pipe','pipe']
+  // Windows detached console processes can silently lose redirected stdout/stderr.
+  // taskkill /T still handles process-tree termination without detached mode.
+  cwd:request.cwd,env,detached:platform.commandDetached(),stdio:['ignore','pipe','pipe']
  });
  update({state:'running',pid:child.pid??null,heartbeat_at:new Date().toISOString(),last_output_at:null});
  // Durable process heartbeat survives dropped ChatGPT response streams.

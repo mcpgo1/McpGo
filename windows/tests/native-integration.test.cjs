@@ -83,12 +83,6 @@ test('native Windows Node.exe + ConPTY + OneShot MCP + Files', {skip:!enabled,ti
  assert.equal(encoded.status,0,'direct encoded PowerShell: '+JSON.stringify(encoded));
  assert.match(encoded.stdout,/MCPGO_DIRECT_ENCODED/,
   'direct encoded PowerShell: '+JSON.stringify(encoded));
- const encodedDetached=spawnSync(encodedCommand.file,encodedCommand.args,{
-  encoding:'utf8',windowsHide:true,detached:true,timeout:12000,cwd:temp,env});
- assert.equal(encodedDetached.status,0,'detached encoded PowerShell: '+JSON.stringify(encodedDetached));
- assert.match(encodedDetached.stdout,/MCPGO_DIRECT_ENCODED/,
-  'detached encoded PowerShell: '+JSON.stringify(encodedDetached));
-
  const exec=await call(12848,oneshotCfg,'tools/call',{name:'terminal_exec',arguments:{
   command:'Write-Output MCPGO_ONESHOT_READY',cwd:temp,timeout_ms:15000}});
  const result=JSON.parse(exec.content[0].text);
