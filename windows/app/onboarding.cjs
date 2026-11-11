@@ -15,7 +15,7 @@ async function onboarding({action,payload,root,userData,python}){
    stdio:['pipe','pipe','pipe'],env:{
     ...process.env,MCPGO_USER_DATA:userData,MCPGO_RESOURCE_ROOT:root,
     MCPGO_TUNNEL_CLIENT:path.join(root,'tunnel','tunnel-client.exe'),
-    PYTHONDONTWRITEBYTECODE:'1'
+    PYTHONDONTWRITEBYTECODE:'1',PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8'
    }});
   let stdout='',size=0,done=false;
   const fail=error=>{if(done)return;done=true;reject(error)};

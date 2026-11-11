@@ -94,7 +94,7 @@ class Runtime {
     if(name==='autosend')return this.node(p.autosend,[],{
       MCPHUB_AUTOSEND_STATE:path.join(this.userData,'AutoSend','tasks.json')});
     if(name==='messaging')return {file:p.python,args:[p.messaging,'serve'],cwd:path.dirname(p.messaging),
-      env:{...process.env,MCPHUB_MESSAGE_DB:path.join(this.userData,'Messaging','messages.sqlite3')}};
+      env:{...process.env,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8',MCPHUB_MESSAGE_DB:path.join(this.userData,'Messaging','messages.sqlite3')}};
     if(name==='browser'){
       if(!fs.existsSync(p.browser))throw Error('PLAYWRIGHT_DEPENDENCIES_MISSING');
       fs.mkdirSync(p.artifacts,{recursive:true});

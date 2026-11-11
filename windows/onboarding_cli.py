@@ -12,6 +12,13 @@ import pathlib
 import sys
 import tempfile
 
+# The embedded Windows Python console encoding may default to a legacy codepage.
+# All IPC between Electron and the onboarding CLI is UTF-8 JSON.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="strict")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+
 ROOT=pathlib.Path(os.environ.get("MCPGO_RESOURCE_ROOT",
     str(pathlib.Path(__file__).resolve().parents[1]))).resolve()
 sys.path.insert(0,str(ROOT/"onboarding"))

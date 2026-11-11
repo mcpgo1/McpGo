@@ -14,7 +14,7 @@ test('embedded Windows Python supports tunnel onboarding journal and SQLite agen
  const tunnel=path.join(repo,'windows/vendor/tunnel/tunnel-client.exe');
  assert.ok(fs.existsSync(python));assert.ok(fs.existsSync(tunnel));
  const env={...process.env,MCPGO_USER_DATA:temp,MCPGO_RESOURCE_ROOT:repo,
-  MCPGO_TUNNEL_CLIENT:tunnel,MCPHUB_MESSAGE_DB:path.join(temp,'Messaging','messages.sqlite3')};
+  MCPGO_TUNNEL_CLIENT:tunnel,PYTHONUTF8:'1',PYTHONIOENCODING:'utf-8',MCPHUB_MESSAGE_DB:path.join(temp,'Messaging','messages.sqlite3')};
  t.after(()=>fs.rmSync(temp,{recursive:true,force:true,maxRetries:5,retryDelay:200}));
  const imported=spawnSync(python,[path.join(repo,'windows/onboarding_cli.py'),'import'],
   {env,cwd:repo,input:JSON.stringify({confirmed:true,terminalId:'tunnel_'+'a'.repeat(32),

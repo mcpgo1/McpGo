@@ -19,6 +19,8 @@ test('Windows commands roundtrip Unicode, quotes and metacharacters',()=>{
  assert.equal(spec.file,'powershell.exe');
  const decoded=Buffer.from(spec.args.at(-1),'base64').toString('utf16le');
  assert.match(decoded,/OutputEncoding/);
+ assert.ok(decoded.includes('\nWrite-Output '),'PowerShell setup must end with a real newline, not literal backslash+n');
+ assert.equal(decoded.includes('\\nWrite-Output'),false);
  assert.ok(decoded.endsWith(original));
  assert.throws(()=>p.commandSpec('a'.repeat(10000),'win32'),/WINDOWS_COMMAND_TOO_LONG/);
 });
