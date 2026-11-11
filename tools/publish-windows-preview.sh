@@ -8,7 +8,9 @@ workflow="windows-preview.yml"
 artifact="McpGo-Windows-unsigned-preview"
 tag="v2.1.0-preview.1"
 version="${tag#v}"
-name="McpGo Setup ${version}.exe"
+ci_name="McpGo Setup ${version}.exe"
+# GitHub Releases normalizes spaces to dots in uploaded asset names.
+name="McpGo.Setup.${version}.exe"
 installer="release/windows/${name}"
 checksum="${installer}.sha256"
 mode="${1:---dry-run}"
@@ -43,7 +45,7 @@ fi
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 gh run download "$run_id" -R "$repo" -n "$artifact" -D "$stage"
-candidate="$stage/$name"
+candidate="$stage/$ci_name"
 [[ -f "$candidate" ]] || { echo "Expected installer not in CI artifact" >&2; exit 1; }
 [[ "$(find "$stage" -type f | wc -l | tr -d ' ')" == 1 ]] ||
  { echo "Unexpected files in CI artifact" >&2; exit 1; }

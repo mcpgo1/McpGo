@@ -112,7 +112,8 @@ A Mac cross-compiled installer must never be published as a substitute.
 
 - `./tools/publish-windows-preview.sh --prepare` downloads the actual
   Windows CI artifact from the successful job for this exact commit, checks
-  the Windows PE header and produces an adjacent `.sha256` manifest.
+  the Windows PE header, normalizes the public filename to GitHub’s dot-delimited
+  asset name and produces a matching adjacent `.sha256` manifest.
 - Update `app/windows-release.ts` in the separate website repository to
   **exactly** the staged hash and deploy the website.
 - `./tools/publish-windows-preview.sh --publish` re-downloads the same CI
