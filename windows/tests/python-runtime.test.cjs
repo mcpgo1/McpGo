@@ -19,7 +19,7 @@ test('embedded Windows Python supports tunnel onboarding journal and SQLite agen
  const imported=spawnSync(python,[path.join(repo,'windows/onboarding_cli.py'),'import'],
   {env,cwd:repo,input:JSON.stringify({confirmed:true,terminalId:'tunnel_'+'a'.repeat(32),
    browserId:'tunnel_'+'b'.repeat(32)}),encoding:'utf8',windowsHide:true,timeout:12000});
- assert.equal(imported.status,0,imported.stderr);
+ assert.equal(imported.status,0,JSON.stringify({stdout:imported.stdout,stderr:imported.stderr,error:imported.error?.message,signal:imported.signal}));
  const response=JSON.parse(imported.stdout);
  assert.equal(response.result.tunnels.terminal,'tunnel_'+'a'.repeat(32));
  assert.ok(fs.existsSync(path.join(temp,'Onboarding','state.json')));

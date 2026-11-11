@@ -73,11 +73,14 @@ test('native Windows Node.exe + ConPTY + OneShot MCP + Files', {skip:!enabled,ti
  assert.ok(found,'ConPTY shell did not emit output');
  await call(12848,oneshotCfg,'tools/call',{name:'terminal_close',arguments:{
   session_id:session.session_id,session_key:session.session_key}});
+ const powershell=spawnSync('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-Command','Write-Output MCPGO_DIRECT_POWERSHELL'],{encoding:'utf8',windowsHide:true,timeout:12000});
+ assert.equal(powershell.status,0,'direct PowerShell: '+powershell.stderr);
+ assert.match(powershell.stdout,/MCPGO_DIRECT_POWERSHELL/);
  const exec=await call(12848,oneshotCfg,'tools/call',{name:'terminal_exec',arguments:{
   command:'Write-Output MCPGO_ONESHOT_READY',cwd:temp,timeout_ms:15000}});
  const result=JSON.parse(exec.content[0].text);
  assert.equal(result.exit_code,0);
- assert.match(result.stdout,/MCPGO_ONESHOT_READY/);
+ assert.match(result.stdout,/MCPGO_ONESHOT_READY/,JSON.stringify(result));
  const data=path.join(temp,'sample.txt');fs.writeFileSync(data,'native file service');
  const read=await call(12848,oneshotCfg,'tools/call',{name:'files_read',arguments:{path:data}});
  assert.match(JSON.parse(read.content[0].text).text,/native file service/);
