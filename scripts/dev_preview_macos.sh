@@ -88,6 +88,16 @@ if ! cmp -s "$DOC_SRC" "$DOC_DEST"; then
   cp -p "$DOC_SRC" "$DOC_DEST"
 fi
 
+# Include new recovery/operation modules in the Dev-only embedded runtime
+# before its ad-hoc signature is computed. Never touch /Applications/McpGo.app.
+python3 "$ROOT/scripts/dev_sync_runtime.py" --bundle "$DEV_APP/Contents/Resources/RuntimeSeed"
+
+# Label this DEV preview with its actual target version in Info.plist.
+# The release bundle and source Info.plist are not modified.
+DEV_PLIST="$DEV_APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 2.0.7" "$DEV_PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 207" "$DEV_PLIST"
+
 # Sign only this app, never the Release DMG or installed copy.
 codesign --force --sign - --options runtime "$DEV_APP"
 codesign --verify --deep --strict "$DEV_APP"
@@ -204,6 +214,10 @@ else
   print -u2 "[dev] Browser launcher cannot be safely synchronized."
   exit 10
 fi
+
+# The user explicitly chose Dev testing. Synchronize only source files into
+# the already-existing writable runtime; DO NOT restart active MCP processes.
+python3 "$ROOT/scripts/dev_sync_runtime.py" --runtime
 
 echo "[dev] Preview ready: $DEV_APP"
 echo "[dev] This app shares the current user's McpGo test state; no services are installed by the build."

@@ -41,6 +41,13 @@ async function tool(method,params){
  assert.notEqual(response.result?.isError,true,JSON.stringify(response));
  return method==='tools/call'?JSON.parse(response.result.content[0].text):response.result;
 }
+test('MCP initialize advertises version from bundled metadata, not a stale literal',async()=>{
+ const init=await tool('initialize',{protocolVersion:'2025-06-18',
+  capabilities:{},clientInfo:{name:'McpGoTests',version:'1.0.0'}});
+ const expected=JSON.parse(fs.readFileSync(fileURLToPath(new URL('../mcp-version.json',import.meta.url)),'utf8')).version;
+ assert.equal(init.serverInfo.version,expected);
+ assert.equal(expected,'1.3.0');
+});
 test('MCP advertises durability, watch, pagination and cancel tools',async()=>{
  const names=(await tool('tools/list')).tools.map(x=>x.name);
  for(const n of ['job_start','job_recent','job_status','job_watch','job_logs','job_result','job_output','job_cancel'])
@@ -61,4 +68,64 @@ test('MCP calls preserve job identity and return persisted completion',async()=>
  assert.equal(Buffer.from(chunk.data_base64,'base64').toString(),'hello');
  const recent=await tool('tools/call',{name:'job_recent',arguments:{limit:1}});
  assert.equal(recent.jobs[0].job_id,a.job_id);
+});
+
+test('ordinary terminal_exec creates a durable operation ID and can be recovered without guessing',async()=>{
+ const request_id='exec-durable-0007';
+ const first=await tool('tools/call',{name:'terminal_exec',
+  arguments:{command:'printf durable-hello',request_id}});
+ assert.match(first.job_id,/^[a-f0-9]{48}$/);
+ assert.equal(first.operation_id,first.job_id);
+ assert.equal(first.exit_code,0);
+ assert.equal(first.result_ready,true);
+ assert.match(first.stdout,/durable-hello/);
+ const repeated=await tool('tools/call',{name:'terminal_exec',
+  arguments:{command:'printf durable-hello',request_id}});
+ assert.equal(repeated.job_id,first.job_id);
+ assert.equal(repeated.deduplicated,true);
+ const recovery=await tool('tools/call',{name:'mcpgo_recover',arguments:{limit:20}});
+ assert.ok(recovery.operations.jobs.some(x=>x.job_id===first.job_id));
+ assert.ok(Array.isArray(recovery.resources.locks));
+});
+test('lock contention refuses the second conflicting command but allows independent agent',async()=>{
+ const resource_key='deploy:gafus-prod';
+ const first=await tool('tools/call',{name:'job_start',arguments:{
+  command:'sleep 2; printf release-done',resource_key,request_id:'deploy-lock-0001'}});
+ const blocked=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/json'},
+  body:JSON.stringify({jsonrpc:'2.0',id:++sequence,method:'tools/call',
+   params:{name:'terminal_exec',arguments:{command:'printf conflict',resource_key}}})});
+ const blockedPayload=await blocked.json();
+ assert.equal(blockedPayload.result.isError,true);
+ assert.match(blockedPayload.result.content[0].text,/RESOURCE_BUSY/);
+ const independent=await tool('tools/call',{name:'terminal_exec',
+  arguments:{command:'printf independent',resource_key:'release:other-project'}});
+ assert.equal(independent.exit_code,0);
+ const status=await tool('tools/call',{name:'resource_lock_status',
+  arguments:{resource_key}});
+ assert.equal(status.owner_job_id,first.job_id);
+ for(let i=0;i<20;i++){
+  const s=await tool('tools/call',{name:'job_status',arguments:{job_id:first.job_id}});
+  if(s.state==='exited')break;
+  await new Promise(resolve=>setTimeout(resolve,160));
+ }
+ assert.equal((await tool('tools/call',{name:'job_status',
+  arguments:{job_id:first.job_id}})).exit_code,0);
+ const after=await tool('tools/call',{name:'terminal_exec',
+  arguments:{command:'printf lock-reused',resource_key}});
+ assert.equal(after.exit_code,0);
+});
+test('four independent jobs run concurrently without a global resource mutex',async()=>{
+ const jobs=await Promise.all([1,2,3,4].map(i=>tool('tools/call',{
+  name:'job_start',arguments:{command:'sleep 2; printf agent-'+i,resource_key:'custom:agent'+i}
+ })));
+ assert.equal(new Set(jobs.map(j=>j.job_id)).size,4);
+ // None should be rejected due to an unrelated resource.
+ await Promise.all(jobs.map(async j=>{
+  for(let i=0;i<25;i++){
+   const s=await tool('tools/call',{name:'job_status',arguments:{job_id:j.job_id}});
+   if(s.state==='exited'){assert.equal(s.exit_code,0);return}
+   await new Promise(resolve=>setTimeout(resolve,170));
+  }
+  assert.fail('Independent job did not complete');
+ }));
 });

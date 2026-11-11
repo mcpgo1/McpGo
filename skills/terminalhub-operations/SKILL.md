@@ -8,8 +8,15 @@ description: Безопасно выполнять локальные коман
 При чтении и изменении локальных файлов, сборках, тестах, длительных задачах через ChatTerminalHub.
 
 ## Инструменты и восстановление после обрыва
-- `terminal_exec`: только короткие команды (до 90 секунд). Проверить `exit_code`, `timed_out`, `spawn_error`.
+- `terminal_exec`: короткие команды (до 90 секунд) через durable job-worker;
+  сервер автоматически возвращает job_id/operation_id. Проверить `exit_code`, `timed_out`, `spawn_error`.
 - `job_start({command,cwd?,timeout_ms?,request_id?})`: длительное фоновое задание. Используй **стабильный request_id** для конкретной операции. Возвращённый job_id — НЕ PASS.
+- mcpgo_recover({limit?}): первый read-only вызов после обрыва,
+  возвращает job ID, неопределенные заявки и конфликтующие ресурсы.
+- resource_lock_status({resource_key?}): посмотреть владельца известного
+  ресурса. Для опасных конфликтов задавайте resource_key на terminal_exec
+  или job_start. Простые Git writes и deploy распознаются автоматически,
+  сложные shell-скрипты — нет.
 - `job_recent({limit?})`: найти уже запущенную задачу после прерывания ChatGPT, **не стартуя её второй раз**.
 - `job_watch({job_id,wait_ms?})`: ждать изменения статуса/вывода до 25 секунд, не блокируя модель долгим tool call.
 - `job_status({job_id})`: проверить heartbeat, progress, idle output и окончательное состояние.
@@ -18,7 +25,7 @@ description: Безопасно выполнять локальные коман
 - `job_cancel({job_id})`: запрос отмены, НЕ гарантия мгновенного stop или отката эффектов.
 - `job_logs({job_id,...})`: ограниченный хвост для быстрой диагностики.
 
-**Правило:** при потере результата сначала `job_recent → job_status/job_watch → job_result`. Не придумывай новый request_id и не повторяй command, пока не проверены возможные побочные эффекты. PASS = `state=exited`, `exit_code=0`, `timed_out=false`, `spawn_error=null` плюс подтверждённый внешний результат.
+**Правило:** при потере результата сначала mcpgo_recover → job_status/job_watch → job_result. Не придумывай новый request_id и не повторяй command, пока не проверены возможные побочные эффекты. PASS = `state=exited`, `exit_code=0`, `timed_out=false`, `spawn_error=null` плюс подтверждённый внешний результат.
 
 ## Рабочий порядок
 1. Проверь цель и каталоги, прочитай `AGENTS.md`, `git status` до изменений.

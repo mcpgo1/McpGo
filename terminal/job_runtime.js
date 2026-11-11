@@ -4,6 +4,8 @@ const path=require('node:path');
 const os=require('node:os');
 const crypto=require('node:crypto');
 const {spawn}=require('node:child_process');
+const locks=require('./resource_locks.js');
+const {classifyCommand}=require('./resource_policy.js');
 
 const ROOT=process.env.MCPGO_JOB_ROOT||path.join(os.homedir(),'Library','Application Support','ChatTerminalHub','OneShotJobs');
 const WORKER=path.join(__dirname,'job_worker.js');
@@ -76,7 +78,7 @@ function summarize(job_id){
   }
  }
  return {
-  job_id,state,reason,created_at:m.created_at,started_at:m.started_at??null,
+  job_id,operation_id:job_id,resource_key:m.resource_key??null,state,reason,created_at:m.created_at,started_at:m.started_at??null,
   finished_at:m.finished_at??null,runner_pid:m.runner_pid??null,
   pid:m.pid??null,exit_code:m.exit_code??null,signal:m.signal??null,
   timed_out:m.timed_out??false,spawn_error:m.spawn_error??null,
@@ -99,38 +101,54 @@ function startJob(args){
  if(typeof cwd!=='string'||!path.isAbsolute(cwd)||!fs.existsSync(cwd)||!fs.statSync(cwd).isDirectory())throw Error('INVALID_CWD');
  const timeout_ms=args.timeout_ms===undefined?1200000:args.timeout_ms;
  if(!Number.isInteger(timeout_ms)||timeout_ms<1000||timeout_ms>MAX_DURATION_MS)throw Error('INVALID_TIMEOUT');
+ const resource_key=args.resource_key===undefined?
+   classifyCommand(args.command,cwd):locks.validateKey(args.resource_key);
  ensureRoot();
  const request_id=args.request_id;
  if(request_id!==undefined && (typeof request_id!=='string' || !/^[a-zA-Z0-9._:-]{8,128}$/.test(request_id)))
    throw Error('INVALID_REQUEST_ID');
- const digest=crypto.createHash('sha256').update(JSON.stringify([args.command,cwd,timeout_ms])).digest('hex');
+ // Preserve the old digest format for jobs created before resource keys.
+ const parts=[args.command,cwd,timeout_ms];
+ if(args.resource_key!==undefined)parts.push(resource_key);
+ const digest=crypto.createHash('sha256').update(JSON.stringify(parts)).digest('hex');
  const job_id=crypto.randomBytes(24).toString('hex');
- if(request_id){
-  const requests=path.join(ROOT,'.requests');
-  fs.mkdirSync(requests,{mode:0o700,recursive:true});
-  const claim=path.join(requests,crypto.createHash('sha256').update(request_id).digest('hex')+'.json');
-  const record={job_id,digest,created_at:new Date().toISOString()};
-  try{
-   // The exclusive claim is durable before any command may be spawned.
-   const fd=fs.openSync(claim,'wx',0o600);
-   try{fs.writeSync(fd,JSON.stringify(record));fs.fsyncSync(fd)}
-   finally{fs.closeSync(fd)}
-  }catch(e){
-   if(e.code!=='EEXIST')throw e;
+ let claim=null;
+ function existingRequest(){
    let existing;
    try{existing=JSON.parse(fs.readFileSync(claim,'utf8'))}
    catch{throw Error('REQUEST_ID_PENDING_OR_UNREADABLE; check job_recent, never retry blindly')}
    if(existing.digest!==digest)throw Error('REQUEST_ID_CONFLICT');
-   try{return {...summarize(existing.job_id),deduplicated:true}}
-   catch{return {job_id:existing.job_id,state:'unknown',deduplicated:true,
+   try{return {...summarize(existing.job_id),operation_id:existing.job_id,deduplicated:true}}
+   catch{return {job_id:existing.job_id,operation_id:existing.job_id,state:'unknown',deduplicated:true,
      reason:'CLAIMED_BUT_JOB_NOT_VISIBLE; do not execute request again'}}
+ }
+ if(request_id){
+   const requests=path.join(ROOT,'.requests');
+   fs.mkdirSync(requests,{mode:0o700,recursive:true});
+   claim=path.join(requests,crypto.createHash('sha256').update(request_id).digest('hex')+'.json');
+   if(fs.existsSync(claim))return existingRequest();
+ }
+ // A busy resource fails before request_id is committed: no command has run,
+ // and this request_id may safely be submitted again when the lock clears.
+ if(resource_key!==null)locks.acquire(resource_key,job_id);
+ if(claim){
+  const record={job_id,digest,created_at:new Date().toISOString()};
+  try{
+   const fd=fs.openSync(claim,'wx',0o600);
+   try{fs.writeSync(fd,JSON.stringify(record));fs.fsyncSync(fd)}
+   finally{fs.closeSync(fd)}
+  }catch(e){
+   if(resource_key!==null)locks.abandon(resource_key,job_id);
+   if(e.code!=='EEXIST')throw e;
+   return existingRequest();
   }
  }
  const folder=dir(job_id);
+ // Fail closed if a post-claim disk error occurs. Never retry blindly.
  fs.mkdirSync(folder,{mode:0o700});
  const created_at=new Date().toISOString();
- atomicWrite(path.join(folder,'status.json'),{state:'queued',created_at});
- atomicWrite(path.join(folder,'request.json'),{command:args.command,cwd,timeout_ms});
+ atomicWrite(path.join(folder,'status.json'),{state:'queued',created_at,resource_key});
+ atomicWrite(path.join(folder,'request.json'),{command:args.command,cwd,timeout_ms,resource_key});
  for(const name of ['stdout.log','stderr.log'])fs.writeFileSync(path.join(folder,name),'',{mode:0o600,flag:'wx'});
  const child=spawn(process.execPath,[WORKER,job_id],{
    cwd:__dirname,detached:true,stdio:'ignore',
@@ -138,11 +156,22 @@ function startJob(args){
      PATH:'/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',LANG:'en_US.UTF-8',TMPDIR:os.tmpdir()}
  });
  child.on('error',e=>{
-  try{const m=readMeta(job_id);if(m.state==='queued')atomicWrite(path.join(folder,'status.json'),
-    {...m,state:'launch_error',spawn_error:e.message,finished_at:new Date().toISOString()})}catch{}
+  try {
+   const m=readMeta(job_id);
+   if(m.state==='queued') {
+    const finished_at=new Date().toISOString();
+    // The detached runner was never started: receipt is durable before
+    // declaring failure and releasing its resource lock.
+    atomicWrite(path.join(folder,'result.json'),
+      {version:1,job_id,state:'launch_error',exit_code:null,finished_at});
+    atomicWrite(path.join(folder,'status.json'),
+      {...m,state:'launch_error',spawn_error:e.code||'RUNNER_SPAWN_FAILED',finished_at});
+    if(resource_key!==null)locks.release(resource_key,job_id);
+   }
+  }catch{} // Unknown failure keeps resource locked; no blind retry.
  });
  child.unref();
- return {job_id,state:'queued',runner_pid:child.pid??null,created_at,timeout_ms,
+ return {job_id,operation_id:job_id,resource_key,state:'queued',runner_pid:child.pid??null,created_at,timeout_ms,
    deduplicated:false,note:'Use job_status for confirmed completion; job_start does not mean PASS'};
 }
 /** Recover opaque job IDs after a disconnected ChatGPT response.
@@ -284,12 +313,15 @@ function logs(args){
    note:'Shows last requested lines/characters only. Use job_status for definitive exit_code.'};
 }
 const tools=[
- {name:'job_start',description:'Start a durable detached macOS command for long-running tests (up to 4 hours). No terminal session. Returns opaque job_id (keep it privately for job_status and job_logs). A queued start is NOT a successful test. No fixed concurrent-job cap; check job_status before retrying an unknown operation.',
+ {name:'mcpgo_recover',description:'FIRST read-only tool after MCP reconnect or lost response. Lists recent persistent operations and currently locked resources, without rerunning ANY command. Use job_status or job_logs to inspect an existing operation.',inputSchema:{type:'object',properties:{limit:{type:'integer',minimum:1,maximum:30}},additionalProperties:false}},
+ {name:'resource_lock_status',description:'Read-only inspect a known resource_key or list locks. Locks only apply to explicitly labeled McpGo jobs; never releases a running or uncertain operation.',inputSchema:{type:'object',properties:{resource_key:{type:'string'},limit:{type:'integer',minimum:1,maximum:100}},additionalProperties:false}},
+ {name:'job_start',description:'Start a durable detached macOS command for long-running tests (up to 4 hours). Each command gets a persistent job_id/operation_id. After disconnection use mcpgo_recover and job_status; NEVER rerun an uncertain operation. Use optional request_id for exact idempotency and resource_key only for known conflicting resources. Four independent tasks can run concurrently.',
  inputSchema:{type:'object',properties:{
  command:{type:'string',description:'Noninteractive /bin/zsh -lc command'},
  cwd:{type:'string',description:'Absolute cwd; use an existing absolute directory under your control'},
  timeout_ms:{type:'integer',minimum:1000,maximum:14400000,description:'Max runtime in ms; default 1200000 (20 minutes)'},
- request_id:{type:'string',minLength:8,maxLength:128,description:'Stable client-generated key. Repeating the same key never starts the command again; different command with same key is rejected'}
+ request_id:{type:'string',minLength:8,maxLength:128,description:'Optional stable client-generated key. Repeating same key never executes again; if omitted, recover generated job_id via mcpgo_recover before reissuing.'},
+ resource_key:{type:'string',description:'Optional lock label for known conflicting operations, e.g. deploy:gafus-prod, git:repo-main, release:mcpgo. Direct simple Git writes/deploys are conservatively auto-classified; arbitrary shell scripts cannot be reliably classified.'}
  },required:['command'],additionalProperties:false}},
  {name:'job_recent',description:'Read-only recovery of up to 30 most recently updated jobs after a ChatGPT response disconnect. Returns opaque job_id, status, heartbeat/exit metadata only. Never reruns a command or exposes command text/log contents.',
  inputSchema:{type:'object',properties:{limit:{type:'integer',minimum:1,maximum:30,description:'Max recent jobs; default 10'}},additionalProperties:false}},
@@ -313,4 +345,31 @@ const tools=[
  max_chars:{type:'integer',minimum:100,maximum:12000,description:'Most recent characters per stream (default 4000)'}
  },required:['job_id'],additionalProperties:false}}
 ];
-module.exports={tools,startJob,getStatus,recent,cancel,result,output,watch,logs,atomicWrite,dir,ensureRoot,readMeta};
+function uncertainClaims(limit=30){
+ const folder=path.join(ROOT,'.requests');
+ let entries=[];
+ try{entries=fs.readdirSync(folder).filter(f=>/^[a-f0-9]{64}\\.json$/.test(f))}
+ catch(e){if(e.code!=='ENOENT')throw e}
+ const items=[];
+ let unreadable=0;
+ for(const name of entries){
+  try {
+   const r=JSON.parse(fs.readFileSync(path.join(folder,name),'utf8'));
+   if(!JOB_ID_PATTERN.test(r.job_id))throw Error('INVALID_ID');
+   if(fs.existsSync(path.join(ROOT,r.job_id,'status.json')))continue;
+   items.push({job_id:r.job_id,operation_id:r.job_id,state:'unknown',
+     reason:'REQUEST_CLAIM_WITHOUT_STATUS; do not replay',
+     created_at:r.created_at??null});
+  }catch{unreadable++}
+ }
+ items.sort((a,b)=>String(b.created_at).localeCompare(String(a.created_at)));
+ return {unknown_jobs:items.slice(0,limit),unreadable_claims:unreadable,
+   note:'Claimed operation may have started. Inspect external state; never silently resend.'};
+}
+function recover(args={}){
+ const operations=recent(args);
+ return {operations,uncertain:uncertainClaims(operations.limit||30),resources:locks.list({limit:30}),
+ note:'Only registered McpGo operations are recoverable. Never replay an unknown shell command or browser action.'}
+}
+function lockStatus(args={}){return args.resource_key!==undefined?locks.inspect(args.resource_key):locks.list(args)}
+module.exports={tools,startJob,getStatus,recent,cancel,result,output,watch,logs,recover,lockStatus,atomicWrite,dir,ensureRoot,readMeta};

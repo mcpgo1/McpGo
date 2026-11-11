@@ -60,7 +60,8 @@ def render(template: Path, node: str) -> dict:
     tunnel = ROOT / "vendor/tunnel/bin/tunnel-client"
     if tunnel.is_file():
         env["MCPGO_TUNNEL_CLIENT"] = str(tunnel)
-    if any("__" in x for x in data["ProgramArguments"]):
+    unresolved = ("__MCPGO_ROOT__", "__HOME__", "__NODE_BIN__")
+    if any(marker in x for x in data["ProgramArguments"] for marker in unresolved):
         raise RuntimeError(f"Unresolved plist placeholder: {template.name}")
     return data
 

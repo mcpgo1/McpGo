@@ -1,9 +1,11 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import {deliverViaPlaywright,reconcileViaPlaywright,observeExistingChat,reloadStalledChat,LocalMcp} from './cdp-delivery.mjs';
-import {POLL_MS,updateWatchdog,noteReload,canRetryAfterReload,continuationOpportunity} from './stall-watchdog.mjs';
-import {verificationReceipt,canReconcile,expired,scheduleNextCheck,finishUnknown,finishVerified} from './reconciliation.mjs';
+import {POLL_MS,updateWatchdog,noteReload,recoveryObservation,continuationOpportunity} from './stall-watchdog.mjs';
+import {safeEvidence,explainEvidence} from './chat-state.mjs';
+import {verificationReceipt,canReconcile,expired,scheduleNextCheck,finishUnknown,finishVerified,recheckUnknown,restoreAttemptEvidence} from './reconciliation.mjs';
 import {readState,writeState,newTask,arm,pause,dueTasks,markUnknownOnBoot,validateInput} from './core.mjs';
+import {conversationState,conversationStates,eligibleToSend,nextDue,canObserveTask} from './conversation-fsm.mjs';
 
 const PORT=Number(process.env.MCPHUB_AUTOSEND_PORT || 8972);
 let cdpOnline=false;let cdpLastError='';let workerBusy=false;
@@ -22,6 +24,7 @@ function reply(res,code,obj,origin=null){
  res.writeHead(code,headers);res.end(out);
 }
 function view(){return {ok:true,tasks:db.tasks,attempts:db.attempts.slice(-30).reverse(),
+ conversations:conversationStates(db.tasks),
  deliverySupported:true,deliveryReason:cdpOnline?'Playwright CDP подключён к личному Chrome.':'Ожидание Playwright CDP: '+(cdpLastError||'проверяем подключение'),
  extensionConnected:cdpOnline,extensionTransport:'Playwright CDP',extensionDiagnostic:null,extensionLastSeen:null,
  extensionVersion:'CDP',requiredExtensionVersion:'CDP',busyTask:db.tasks.find(t=>['checking','sending','verifying'].includes(t.status))?.id||'',serverTime:now()};}
@@ -32,11 +35,13 @@ function operation(action,body){
   }
   case 'update':{
    const t=find(body.id);if(['checking','sending','verifying'].includes(t.status))throw Error('Идёт отправка: сначала дождись результата.');
-   Object.assign(t,validateInput(body));delete t.watchdog;pause(t);t.manual_once=false;t.safe_retry_count=0;t.last_error='';persist();return {task:t};
+   Object.assign(t,validateInput(body));delete t.watchdog;delete t.verification;pause(t);t.manual_once=false;t.safe_retry_count=0;t.last_error='';persist();return {task:t};
   }
   case 'start':{
    const t=find(body.id);if(['checking','sending','verifying'].includes(t.status))throw Error('Идёт отправка.');
    if(t.status==='unknown')throw Error('Неизвестная отправка: проверь чат вручную и измени расписание для сброса статуса.');
+   const other=conversationState(db.tasks.filter(x=>x.id!==t.id),t.url);
+   if(other.blocked)throw Error('В этом чате уже есть незавершённая или неизвестная отправка. Проверь её прежде, чем включать новую.');
    delete t.watchdog;arm(t);t.manual_once=false;t.safe_retry_count=0;persist();return {task:t};
   }
   case 'pause':{
@@ -46,6 +51,33 @@ function operation(action,body){
   case 'remove':{
    const t=find(body.id);if(['checking','sending','verifying'].includes(t.status))throw Error('Идёт отправка.');
    db.tasks=db.tasks.filter(x=>x.id!==body.id);persist();return {removed:body.id};
+  }
+  case 'recheck_unknown':{
+   const t=find(body.id);
+   if(workerBusy || db.tasks.some(x=>x.url===t.url && x.id!==t.id &&
+      ['checking','sending','verifying'].includes(x.status)))
+    throw Error('Дождись окончания проверки в этом разговоре.');
+   recheckUnknown(t);persist();
+   return {checking:true,sendBlocked:true};
+  }
+  case 'confirm_received':{
+   // Explicit user attestation ONLY after checking ChatGPT personally.
+   // This operation NEVER types/clicks/navigates and NEVER rearms a schedule.
+   const t=find(body.id);
+   if(t.status!=='unknown')throw Error('Подтвердить вручную можно только неизвестную попытку.');
+   if(db.tasks.some(x=>x.id!==t.id && x.url===t.url &&
+      ['checking','sending','verifying'].includes(x.status)))
+    throw Error('В этом разговоре сейчас проверяется другая отправка.');
+   const evidence=t.verification?.lastEvidence||null;
+   t.enabled=false;t.manual_once=false;
+   finishVerified(t);
+   t.status='paused';t.next_at=null;t.delivery_stage='manual-confirmed';
+   t.last_error='Подтверждено пользователем вручную. Расписание осталось на паузе.';
+   recordAttempt(t,'verified_manual',
+     'Пользователь подтвердил, что сообщение присутствует в чате; автоматического доказательства не было.',
+     evidence);
+   persist();
+   return {confirmed:true,sendBlocked:true,paused:true};
   }
   case 'clear_history':{
    const cleared=db.attempts.length;
@@ -57,6 +89,8 @@ function operation(action,body){
    const t=find(body.id);if(['checking','sending','verifying'].includes(t.status))throw Error('Идёт отправка.');
    if(t.status==='unknown')throw Error('Неизвестная доставка. Проверь чат и измени задание перед новой попыткой.');
    if(t.manual_once && t.status==='scheduled')throw Error('Однократная отправка уже ожидает выполнения.');
+   const other=conversationState(db.tasks.filter(x=>x.id!==t.id),t.url);
+   if(other.blocked)throw Error('В этом разговоре уже есть неподтверждённое действие; отправка другого задания блокирована.');
    t.manual_once=!t.enabled;t.status='scheduled';t.next_at=now();t.last_error='';persist();return {queued:true};
   }
   default:throw Error('Неизвестное действие.');
@@ -84,13 +118,16 @@ function expireAmbiguous(){
 let lastWatchdogCheck=0;
 let watchdogCursor=0;
 async function monitorStalledChats(){
- if(workerBusy || db.tasks.some(t=>['checking','sending','verifying'].includes(t.status)))return false;
- const candidates=db.tasks.filter(t=>t.enabled && t.status==='scheduled');
+ if(workerBusy)return false;
+ const candidates=db.tasks.filter(t=>canObserveTask(t,db.tasks));
  if(!candidates.length)return false;
  const t=candidates[watchdogCursor++%candidates.length];
  workerBusy=true;
  try{
-  const probe=await observeExistingChat(t);
+  // Wait for a real MutationObserver event briefly before falling back to
+  // the regular health probe. Holding the shared Chrome lock is capped at
+  // 1000 ms, even while another agent is performing long-running work.
+  const probe=await observeExistingChat(t,{eventWaitMs:1000});
   if(probe.status!=='ok'){
    // Do not reset existing evidence or perform any navigation if we cannot
    // observe the exact destination conversation.
@@ -108,13 +145,18 @@ async function monitorStalledChats(){
   }
   // A previously handled CTA must not be triggered again while the same
   // user message remains visible. A new last user ID/receipt is a new event.
-  if(canRetryAfterReload(t.watchdog,observed) &&
-      observed.editorCount===1 && !String(observed.editorText||'').trim()){
-   delete t.watchdog;
-   t.last_error='Соединение восстановлено; проверяем готовность разговора.';
-   // A deferred busy slot has not clicked Send. Recheck immediately, but
-   // ordinary preflight still guards against active replies and user drafts.
-   t.next_at=now();
+  if(t.watchdog?.mode==='recovering'){
+   const check=recoveryObservation(t.watchdog,observed);
+   t.watchdog=check.next;
+   if(check.ready){
+    delete t.watchdog;
+    t.last_error='Соединение восстановлено; чат дважды подтвердил готовность.';
+    // A deferred busy slot has never clicked Send. The separate delivery
+    // preflight will require two fresh stable observations as well.
+    t.next_at=now();
+   }else{
+    t.last_error='Проверяем восстановление после обрыва; новые сообщения пока не отправляем.';
+   }
    persist();
    return true;
   }
@@ -156,9 +198,11 @@ async function monitorStalledChats(){
  }finally{workerBusy=false;}
  return true;
 }
-function recordAttempt(t,result,error=''){
+function recordAttempt(t,result,error='',evidence=null){
+ const proof=evidence||t.verification?.lastEvidence||null;
  db.attempts.push({id:crypto.randomUUID(),task_id:t.id,time:now(),
-   result,error,stage:t.delivery_stage||null});
+   result,error,stage:t.delivery_stage||null,
+   diagnostic:proof?safeEvidence(proof):null});
  db.attempts=db.attempts.slice(-120);
 }
 async function reconcilePending(){
@@ -167,23 +211,30 @@ async function reconcilePending(){
  if(workerBusy)return true;
  workerBusy=true;
  try{
+  // Older builds overwrote positive DOM insertion evidence on the next
+  // unsuccessful poll. Recover it from THIS click's timestamped journal;
+  // still require a fresh exact user bubble and assistant activity.
+  if(restoreAttemptEvidence(t,db.attempts))persist();
   const result=await reconcileViaPlaywright(t,t.verification);
   if(result.status==='verified'){
+   const proof=result.evidence;
    finishVerified(t);
-   recordAttempt(t,'verified');
+   recordAttempt(t,'verified','',proof);
   }else if(expired(t)){
-   finishUnknown(t,'Интерфейс чата не показал однозначное подтверждение.');
+   finishUnknown(t,'Интерфейс чата не показал однозначное подтверждение.',result.evidence);
    recordAttempt(t,'unknown',t.last_error);
   }else{
-   scheduleNextCheck(t,result.reason);
+   scheduleNextCheck(t,result.reason,Date.now(),result.evidence);
   }
   persist();
  }catch(e){
   if(expired(t)){
-   finishUnknown(t,String(e.message||e));
+   finishUnknown(t,'Нет достоверной информации после браузерной ошибки',
+    safeEvidence({code:'OBSERVATION_FAILED',clickCommitted:true,messageFound:false}));
    recordAttempt(t,'unknown',t.last_error);
   }else{
-   scheduleNextCheck(t,String(e.message||e));
+   scheduleNextCheck(t,'Ошибка чтения состояния страницы',Date.now(),
+    safeEvidence({code:'OBSERVATION_FAILED',clickCommitted:true,messageFound:false}));
   }
   persist();
  }finally{workerBusy=false;}
@@ -193,12 +244,14 @@ async function checkCdp(){
  try {const client=new LocalMcp();await client.connect();await client.tool('browser_tabs',{action:'list'});cdpOnline=true;cdpLastError='';}
  catch(e){cdpOnline=false;cdpLastError=String(e.message||e).slice(0,140);}
 }
+let lastScheduledTaskId=null;
 async function runScheduled(){
- if(workerBusy)return;
- // Never start another delivery while a previous click is unresolved.
- if(db.tasks.some(x=>['sending','checking','verifying'].includes(x.status)))return;
- const t=db.tasks.find(x=>(x.enabled||x.manual_once)&&x.status==='scheduled'&&x.next_at&&Date.parse(x.next_at)<=Date.now()&&!db.tasks.some(y=>['checking','sending','verifying'].includes(y.status)));
- if(!t)return;
+ if(workerBusy)return false;
+ // A pending proof in chat A never blocks independent chat B. Browser tool
+ // calls themselves remain serialized by the shared Chrome MCP proxy.
+ const t=nextDue(db.tasks,Date.now(),lastScheduledTaskId);
+ if(!t)return false;
+ lastScheduledTaskId=t.id;
  workerBusy=true;
  t.status='checking';t.last_attempt_at=now();t.next_at=null;t.delivery_stage='preflight';persist();
  try {
@@ -211,33 +264,50 @@ async function runScheduled(){
    t.status='sending';t.delivery_stage='click-committed';t.last_stage_at=now();persist();
    return actionId;
   });
-  const stamp=now();
   if(result.status==='verified'){
    finishVerified(t);
+  } else if(result.status==='refused'&&result.reason==='guard-refused'&&t.verification){
+   // The page-side guard positively confirmed that no click happened. Only
+   // this definitive response allows us to retire a reserved operation ID;
+   // network errors and ambiguous responses ALWAYS remain in verification.
+   const oldActionId=t.verification.actionId;
+   t.verification=null;
+   t.status='scheduled';
+   t.delivery_stage='guard-refused';
+   t.next_at=new Date(Date.now()+t.interval_seconds*1000).toISOString();
+   t.last_error=result.error||'Send отклонён проверкой; безопасно отложен.';
+   t.last_action_id=oldActionId;
   } else if(t.verification || t.status==='sending' || result.status==='pending'){
    // The click may have happened. Never retry it: schedule read-only DOM
    // reconciliation, even if an MCP error interrupted the first observation.
    if(t.verification){
-    scheduleNextCheck(t,result.error);
+    scheduleNextCheck(t,result.error,Date.now(),result.evidence);
    }else{
     finishUnknown(t,'Невозможно восстановить baseline исходной попытки.');
    }
   } else {
    // Busy or uncertain page: no click occurred. Skip this slot, check next interval.
    t.status='scheduled';t.next_at=new Date(Date.now()+t.interval_seconds*1000).toISOString();
-   t.last_error=(result.reason==='busy'?'Агент занят · ':'Проверка отложена · ')+(result.error||'повтор при следующем интервале');
+   t.last_error=(
+    result.reason==='busy'?'Агент занят · ':
+    result.reason==='interrupted'?'Соединение прервано · ':
+    result.reason==='stalled'?'Возможное зависание · ':'Проверка отложена · '
+   )+(result.error||'следующая проверка по расписанию');
   }
   recordAttempt(t,t.status==='verifying'?'verifying':
-    result.status==='deferred'?(result.reason==='busy'?'busy':'deferred'):result.status,t.last_error);
+    result.status==='deferred'?(result.reason==='busy'?'busy':'deferred'):result.status,
+    t.last_error,result.evidence);
   persist();
  }catch(e){
   if(t.verification){
-   scheduleNextCheck(t,String(e.message||e));
+   scheduleNextCheck(t,'Проверка прервана',Date.now(),
+    safeEvidence({code:'OBSERVATION_FAILED',clickCommitted:true,messageFound:false}));
   }else if(t.status==='checking'){
    t.status='scheduled';t.next_at=new Date(Date.now()+t.interval_seconds*1000).toISOString();
    t.last_error='Сбой до нажатия Send; новая попытка при следующем интервале.';
   }else{
-   finishUnknown(t,String(e.message||e));
+   finishUnknown(t,'Нельзя безопасно определить исход попытки',
+    safeEvidence({code:'OBSERVATION_FAILED',clickCommitted:true,messageFound:false}));
   }
   persist();
  }finally{workerBusy=false;}
@@ -268,16 +338,27 @@ const server=http.createServer(async(req,res)=>{
  }
 });
 server.listen(PORT,'127.0.0.1',()=>console.log('McpGo AutoSend Playwright CDP API on 127.0.0.1:'+PORT));
+let schedulerTickRunning=false;
+async function schedulerTick(){
+ if(schedulerTickRunning)return;
+ schedulerTickRunning=true;
+ try{
+  expireAmbiguous();
+  // One read-only confirmation and one independent scheduled task may run
+  // during the same tick. Verifying chat A does NOT starve ready chat B.
+  await reconcilePending();
+  await runScheduled();
+  if(Date.now()-lastWatchdogCheck>=POLL_MS){
+   lastWatchdogCheck=Date.now();
+   await monitorStalledChats();
+  }
+ } finally{schedulerTickRunning=false}
+}
 const timer=setInterval(()=>{
- expireAmbiguous();
- // Reconciliation has priority: no second message may be sent while a prior
- // committed click is awaiting proof.
- if(db.tasks.some(t=>t.status==='verifying'))void reconcilePending();
- else void runScheduled();
- if(Date.now()-lastWatchdogCheck>=POLL_MS){
-  lastWatchdogCheck=Date.now();
-  void monitorStalledChats();
- }
+ void schedulerTick().catch(()=>{
+   // Do not force an operation retry after an unhandled scheduler error.
+   // Durable task/verification receipts are recovered by markUnknownOnBoot.
+ });
 },CHECK_MS);timer.unref();
 const healthTimer=setInterval(()=>{void checkCdp();},30000);healthTimer.unref();void checkCdp();
 process.on('SIGTERM',()=>{clearInterval(timer);clearInterval(healthTimer);server.close(()=>process.exit(0));setTimeout(()=>process.exit(1),5000).unref()});

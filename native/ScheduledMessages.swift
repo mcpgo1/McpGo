@@ -2,11 +2,28 @@ import SwiftUI
 import AppKit
 import Foundation
 
+private struct ScheduledDeliveryEvidence:Decodable {
+    let code:String?
+    let clickCommitted:Bool?
+    let editorCleared:Bool?
+    let messageFound:Bool?
+    let userCountDelta:Int?
+    let userInsertionDelta:Int?
+    let checks:Int?
+    let urlMatched:Bool?
+    let stopVisible:Bool?
+    let streamingVisible:Bool?
+    let connectionInterrupted:Bool?
+    let assistantActivitySeen:Bool?
+    let virtualizedProof:Bool?
+}
 private struct ScheduledVerification:Decodable {
     let checks:Int
     let deadlineAt:String
     let nextCheckAt:String
     let lastObservation:String?
+    let lastEvidence:ScheduledDeliveryEvidence?
+    let manualRechecks:Int?
 }
 private struct ScheduledStallWatchdog:Decodable {
     let mode:String
@@ -43,6 +60,7 @@ private struct DeliveryAttempt: Decodable, Identifiable {
     let result:String
     let stage:String?
     let error:String
+    let diagnostic:ScheduledDeliveryEvidence?
 }
 private struct ChromePageDiagnostic: Decodable {
     let at:String?
@@ -62,10 +80,17 @@ private struct ChromePageDiagnostic: Decodable {
     let sameURL:Bool?
     let tabActive:Bool?
 }
+private struct AutoSendConversation:Decodable {
+    let state:String
+    let blocked:Bool
+    let reason:String?
+    let owner_task_id:String?
+}
 private struct AutoSendResponse: Decodable {
     let ok:Bool?
     let tasks:[ScheduledChatMessage]?
     let attempts:[DeliveryAttempt]?
+    let conversations:[String:AutoSendConversation]?
     let deliverySupported:Bool?
     let deliveryReason:String?
     let extensionConnected:Bool?
@@ -82,6 +107,7 @@ private struct AutoSendResponse: Decodable {
 @MainActor private final class AutoSendModel: ObservableObject {
     @Published var tasks:[ScheduledChatMessage]=[]
     @Published var attempts:[DeliveryAttempt]=[]
+    @Published var conversations:[String:AutoSendConversation]=[:]
     @Published var deliverySupported=false
     @Published var extensionConnected=false
     @Published var extensionTransport="Playwright CDP"
@@ -125,6 +151,7 @@ private struct AutoSendResponse: Decodable {
             let state=try await request("api/status")
             tasks=state.tasks ?? []
             attempts=state.attempts ?? []
+            conversations=state.conversations ?? [:]
             deliverySupported=state.deliverySupported ?? false
             extensionConnected=state.extensionConnected ?? false
             extensionTransport=state.extensionTransport ?? "не определён"
@@ -167,6 +194,8 @@ private struct AutoSendResponse: Decodable {
             case "remove": "Расписание удалено."
             case "send_once": "Запрос поставлен в очередь Playwright. Результат появится в журнале."
             case "clear_history": "Журнал отправок очищен."
+            case "recheck_unknown": "Запущена повторная проверка без Send. Новое сообщение не отправляется."
+            case "confirm_received": "Отмечено как подтверждённое вручную. Расписание осталось выключенным; Send не нажимался."
             default:"Настройки сохранены."
             }
             loading=false
@@ -228,12 +257,53 @@ struct ScheduledMessagesView:View {
     private func attemptDescription(_ attempt:DeliveryAttempt)->String {
         switch attempt.result {
         case "verified":return "Сообщение появилось в чате"
+        case "verified_manual":return "Пользователь подтвердил отправку вручную"
         case "busy":return "Агент занят · отправки не было"
         case "deferred":return "Отложено до следующего интервала"
         case "verifying":return "Проверяем отправку без повторного Send"
         case "retry":return "Ожидание без отправки"
         case "blocked":return "Отправка заблокирована"
         default:return "Результат неизвестен"
+        }
+    }
+    private func evidenceDescription(_ e:ScheduledDeliveryEvidence)->String {
+        let status:String
+        switch e.code ?? "" {
+        case "USER_BUBBLE_VERIFIED":status="Новая пользовательская реплика подтверждена"
+        case "USER_BUBBLE_VERIFIED_VIRTUALIZED":status="Новая реплика подтверждена несколькими признаками, несмотря на свёрнутый DOM"
+        case "USER_BUBBLE_NOT_FOUND":status="Новая пользовательская реплика пока не найдена"
+        case "USER_TEXT_MISMATCH":status="Последняя реплика не совпала с заданием"
+        case "TAB_UNAVAILABLE":status="Вкладка разговора недоступна для проверки"
+        case "WRONG_CONVERSATION":status="Вкладка открыла другой разговор"
+        case "OBSERVATION_FAILED":status="Состояние страницы не удалось прочитать"
+        case "READY_NOT_STABLE":status="Страница менялась во время проверки готовности"
+        case "PRECLICK_NOT_READY","PRECLICK_BUSY":status="До Send обнаружено изменение состояния"
+        case "CONNECTION_INTERRUPTED":status="ChatGPT сообщил об обрыве ответа"
+        default:status="Подтверждение не получено"
+        }
+        var facts=[status]
+        if e.clickCommitted == true {facts.append("Send мог быть нажат; повтор запрещён")}
+        if e.editorCleared == true {facts.append("Поле ввода очистилось")}
+        else if e.editorCleared == false {facts.append("Очистка поля ввода не подтверждена")}
+        if e.messageFound == false {facts.append("Новая реплика пока не подтверждена")}
+        if e.assistantActivitySeen == true {facts.append("Есть признаки нового ответа агента")}
+        if e.virtualizedProof == true {facts.append("Проверены вставка реплики, очистка ввода и ответ агента")}
+        if let checks=e.checks {facts.append("Проверок: \(checks)")}
+        if let delta=e.userCountDelta {facts.append("Изменение видимого числа реплик: \(delta)")}
+        if let inserted=e.userInsertionDelta, inserted>0 {
+            facts.append("Обнаружены добавления элементов в DOM: \(inserted); это не доказательство отправки")
+        }
+        return facts.joined(separator:" · ")
+    }
+
+    private func conversationDescription(_ state:String)->String {
+        switch state {
+        case "READY":return "Готов к проверке"
+        case "WORKING":return "Агент отвечает"
+        case "RECOVERING":return "Восстановление чата"
+        case "VERIFYING_SEND":return "Проверка Send без повтора"
+        case "UNKNOWN":return "Неизвестный результат · отправка заблокирована"
+        default:return "Расписание не активно"
         }
     }
     private func stateDescription(_ t:ScheduledChatMessage)->String {
@@ -246,6 +316,7 @@ struct ScheduledMessagesView:View {
         case "sending":return "Отправка…"
         case "verifying":return "Проверяем доставку · без повторной отправки"
         case "verified":return "Подтверждено"
+        case "verified_manual":return "Подтверждено вручную"
         case "unknown":return "Нужна проверка"
         case "blocked":return "Требуется внимание"
         default:return "Приостановлено"
@@ -407,9 +478,9 @@ struct ScheduledMessagesView:View {
                         VStack(alignment:.leading,spacing:9) {
                             ForEach(model.attempts) { attempt in
                                 HStack(alignment:.top,spacing:9) {
-                                    Image(systemName:attempt.result=="verified" ? "checkmark.circle.fill" :
+                                    Image(systemName:["verified","verified_manual"].contains(attempt.result) ? "checkmark.circle.fill" :
                                         attempt.result=="busy" || attempt.result=="deferred" || attempt.result=="verifying" ? "clock.arrow.circlepath" : "exclamationmark.triangle.fill")
-                                        .foregroundStyle(attempt.result=="verified" ? Palette.online :
+                                        .foregroundStyle(["verified","verified_manual"].contains(attempt.result) ? Palette.online :
                                             attempt.result=="busy" || attempt.result=="deferred" || attempt.result=="verifying" ? Palette.accent : Palette.warning)
                                     VStack(alignment:.leading,spacing:4) {
                                         Text("\(displayDate(attempt.time)) · \(attemptDescription(attempt))")
@@ -417,6 +488,15 @@ struct ScheduledMessagesView:View {
                                         if !attempt.error.isEmpty {
                                             Text(attempt.error).font(.system(size:10.5)).foregroundStyle(Palette.muted)
                                                 .fixedSize(horizontal:false,vertical:true)
+                                        }
+                                        if let evidence=attempt.diagnostic {
+                                            DisclosureGroup("Детали проверки") {
+                                                Text(evidenceDescription(evidence))
+                                                    .font(.system(size:10.5)).foregroundStyle(Palette.muted)
+                                                    .fixedSize(horizontal:false,vertical:true)
+                                            }
+                                            .font(.system(size:10,weight:.medium))
+                                            .foregroundStyle(Palette.quiet)
                                         }
                                     }
                                     Spacer()
@@ -473,7 +553,10 @@ struct ScheduledMessagesView:View {
             get:{confirmation != nil},set:{if !$0 {confirmation=nil}}
         )) {
             if let confirmation {
-                Button(confirmation.action=="remove" ? "Удалить расписание" : confirmation.action=="clear_history" ? "Очистить журнал" : "Отправить сообщение сейчас",
+                Button(confirmation.action=="remove" ? "Удалить расписание" :
+                       confirmation.action=="clear_history" ? "Очистить журнал" :
+                       confirmation.action=="confirm_received" ? "Подтвердить вручную · без Send" :
+                       "Отправить сообщение сейчас",
                        role: (confirmation.action=="remove" || confirmation.action=="clear_history") ? .destructive : nil) {
                     let action=confirmation.action,id=confirmation.id
                     self.confirmation=nil
@@ -544,6 +627,16 @@ struct ScheduledMessagesView:View {
                         .font(.system(size:11,weight:.semibold)).foregroundStyle(stateColor(task))
                 }
             }
+            if let conversation=model.conversations[task.url] {
+                HStack(spacing:6) {
+                    Image(systemName:conversation.blocked ? "lock.shield" : "point.3.connected.trianglepath.dotted")
+                        .font(.system(size:10.5))
+                    Text("Состояние разговора: " + conversationDescription(conversation.state))
+                        .font(.system(size:10.5,weight:.medium))
+                }
+                .foregroundStyle(conversation.state=="UNKNOWN" ? Palette.warning : Palette.muted)
+                .accessibilityLabel("Очередь этого разговора: " + conversationDescription(conversation.state))
+            }
             Text(task.message)
                 .font(.system(size:12)).foregroundStyle(Palette.muted)
                 .lineLimit(3)
@@ -591,11 +684,51 @@ struct ScheduledMessagesView:View {
                       systemImage:"clock.arrow.circlepath")
                     .font(.system(size:10.5)).foregroundStyle(Palette.accent)
                     .fixedSize(horizontal:false,vertical:true)
-                if let reason=proof.lastObservation, !reason.isEmpty {
-                    Text(reason)
+                if let evidence=proof.lastEvidence {
+                    Text(evidenceDescription(evidence))
                         .font(.system(size:10.5)).foregroundStyle(Palette.muted)
                         .fixedSize(horizontal:false,vertical:true)
                 }
+            }
+            if task.status=="unknown" {
+                Label("После неопределённого результата новая отправка заблокирована. Сначала проверь существующую попытку.",
+                      systemImage:"hand.raised.fill")
+                    .font(.system(size:11,weight:.medium))
+                    .foregroundStyle(Palette.warning)
+                    .fixedSize(horizontal:false,vertical:true)
+                if let receipt=task.verification {
+                    Button {
+                        Task {_ = await model.execute("recheck_unknown",values:["id":task.id])}
+                    } label: {
+                        Label("Проверить ещё раз · без отправки",systemImage:"checkmark.shield")
+                            .font(.system(size:11.5,weight:.semibold))
+                    }
+                    .buttonStyle(HubInteractiveButtonStyle(treatment:.bordered))
+                    .disabled(model.loading)
+                    if let evidence=receipt.lastEvidence {
+                        DisclosureGroup("Диагностика последней попытки") {
+                            Text(evidenceDescription(evidence))
+                                .font(.system(size:10.5))
+                                .foregroundStyle(Palette.muted)
+                                .fixedSize(horizontal:false,vertical:true)
+                        }
+                        .font(.system(size:10.5,weight:.medium))
+                        .foregroundStyle(Palette.quiet)
+                    }
+                } else {
+                    Text("Сохранённой квитанции нет. Проверь чат вручную; автоматического повтора не будет.")
+                        .font(.system(size:10.5)).foregroundStyle(Palette.muted)
+                }
+                Button {
+                    confirmation=Confirmation(id:task.id,action:"confirm_received",
+                        title:"Подтвердить отправку вручную?",
+                        explanation:"Используй только если лично видишь новое сообщение в указанном чате ChatGPT. McpGo отметит попытку как подтверждённую вручную, но НЕ отправит текст повторно и оставит расписание на паузе.")
+                } label: {
+                    Label("Сообщение уже в чате · подтвердить вручную",systemImage:"checkmark.seal")
+                        .font(.system(size:11.5,weight:.medium))
+                }
+                .buttonStyle(HubInteractiveButtonStyle(treatment:.bordered))
+                .disabled(model.loading)
             }
             if (task.status=="sending" || task.status=="verifying"), let stage=task.delivery_stage {
                 Label("Этап: \(deliveryStageName(stage)) · это не подтверждение завершения ответа ChatGPT",systemImage:"arrow.triangle.2.circlepath")

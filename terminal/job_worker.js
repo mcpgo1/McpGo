@@ -5,6 +5,7 @@ const os=require('node:os');
 const {spawn}=require('node:child_process');
 const crypto=require('node:crypto');
 const runtime=require('./job_runtime.js');
+const locks=require('./resource_locks.js');
 
 const job_id=process.argv[2];
 const folder=runtime.dir(job_id);
@@ -114,6 +115,10 @@ function finalize(code,signal){
   result_write_error:result.result_write_error||null,
   stdout_truncated,stderr_truncated
  });
+ if(request.resource_key) {
+  try{locks.release(request.resource_key,job_id)}
+  catch{} // Never falsely mark a lock free if the release is uncertain.
+ }
 }
 update({state:'starting',runner_pid:process.pid,created_at:state.created_at,started_at:new Date().toISOString()});
 const env={

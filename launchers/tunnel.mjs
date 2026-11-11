@@ -1,4 +1,4 @@
-import {readFileSync,statSync,writeFileSync} from 'node:fs';
+import {readFileSync,statSync,writeFileSync,unlinkSync,mkdirSync} from 'node:fs';
 import {spawn,execFileSync} from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,9 +34,13 @@ for (let attempt=0;attempt<12;attempt++) {
   await new Promise(resolve=>setTimeout(resolve,1500));
 }
 if(!mcpReady) {console.error('MCP backend not ready after retries');process.exit(3);}
+process.umask(0o077);
+mkdirSync(dataDir,{recursive:true,mode:0o700});
 const config=path.join(dataDir,'tunnel-empty-config.yaml');
 writeFileSync(config,'{}\n',{mode:0o600});
-const args=['run','--config',config,'--control-plane.tunnel-id',id,'--control-plane.api-key','env:CONTROL_PLANE_API_KEY','--mcp.server-url','http://127.0.0.1:8940/mcp','--health.listen-addr','127.0.0.1:0'];
+const healthFile=path.join(dataDir,'tunnel-health.url');
+try{unlinkSync(healthFile)}catch(e){if(e.code!=='ENOENT')throw e}
+const args=['run','--config',config,'--control-plane.tunnel-id',id,'--control-plane.api-key','env:CONTROL_PLANE_API_KEY','--mcp.server-url','http://127.0.0.1:8940/mcp','--health.listen-addr','127.0.0.1:0','--health.url-file',healthFile];
 console.log('Starting secure outbound-only Playwright tunnel');
 const child=spawn('tunnel-client',args,{cwd:mcp,env,stdio:'inherit'});
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>child.kill(signal));

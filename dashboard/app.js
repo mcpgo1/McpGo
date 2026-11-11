@@ -6,6 +6,15 @@ const mark=(id,on,label,warn=false)=>{const el=$(id); el.className='dotline'+(on
 function render(data){
   last=data;
   const t=data.terminal,p=data.playwright;
+  const rec=data.recovery||{};
+  const textFor={CONNECTED:'Туннель готов',DEGRADED:'Подключение не готово',
+    RECOVERING:'Восстановление соединения',OFFLINE:'Локальный MCP недоступен',
+    AUTH_REQUIRED:'Нужна авторизация',NEEDS_ATTENTION:'Нужна проверка',
+    STOPPED_BY_USER:'Процесс запускается вручную',
+    UNMONITORED:'Мониторинг после следующего запуска',CHECKING:'Проверка подключения'};
+  const tunnelLabel=(target,running)=>!running?'Не запущен':
+    textFor[rec[target]?.status]||'Процесс запущен';
+
   const terminalOn=t.server.running&&t.oneshot.running&&t.tunnel.running;
   const browserOn=p.browser.running&&p.backend&&p.proxy.running&&p.proxyReady&&p.mcpReady===true&&p.tunnel.running;
   for(const [group,on,any] of [['terminal',terminalOn,t.server.running||t.oneshot.running||t.tunnel.running],['playwright',browserOn,p.browser.running||p.proxy.running||p.tunnel.running]]){
@@ -15,11 +24,18 @@ function render(data){
   }
   mark('terminal-server',t.server.running,' '+(t.server.running?'Работает':'Не запущен'));
   mark('terminal-oneshot',t.oneshot.running,' '+(t.oneshot.running?'Работает':'Не запущен'));
-  mark('terminal-tunnel',t.tunnel.running,' '+(t.tunnel.running?'Процесс запущен':'Не запущен'));
+  mark('terminal-tunnel',t.tunnel.running&&rec.terminal?.status==='CONNECTED',
+    tunnelLabel('terminal',t.tunnel.running),t.tunnel.running&&rec.terminal?.status==='NEEDS_ATTENTION');
   mark('playwright-browser',p.browser.running&&p.backend,p.backend?'Порт открыт':'Не запущен',p.browser.running&&!p.backend);
   mark('playwright-proxy',p.proxy.running&&p.proxyReady&&p.mcpReady===true,p.proxyReady?(p.mcpReady===true?'MCP работает':'MCP недоступен'):'Не запущен',p.proxy.running&&p.mcpReady!==true);
-  mark('playwright-tunnel',p.tunnel.running,p.tunnel.running?'Процесс запущен':p.configured?'Не запущен':'Не настроен',!p.configured);
-  $('playwright-hint').textContent=!p.configured?'Для туннеля не хватает сохранённой конфигурации. Подробности в README.':'После перезагрузки нажмите «Запустить». Туннель стартует после прокси.';
+  mark('playwright-tunnel',p.tunnel.running&&rec.playwright?.status==='CONNECTED',
+    p.configured?tunnelLabel('playwright',p.tunnel.running):'Не настроен',
+    !p.configured||rec.playwright?.status==='NEEDS_ATTENTION');
+  $('playwright-hint').textContent=!p.configured?
+    'Для туннеля не хватает сохранённой конфигурации. Подробности в README.':
+    rec.playwright?.desired?
+    'Автовосстановление туннеля включено. Chrome, активные задачи и действия не перезапускаются.':
+    'Нажмите «Запустить», чтобы включить автоматический контроль туннеля после успешного запуска.';
   $('updated').textContent='Статус: '+new Date(data.updatedAt).toLocaleTimeString('ru-RU');
 }
 async function refresh(){try{const response=await fetch('/api/status',{cache:'no-store'});if(!response.ok)throw Error('Ошибка связи с панелью');render(await response.json());}catch(e){flash(e.message,true);}}

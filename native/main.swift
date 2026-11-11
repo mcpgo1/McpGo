@@ -39,6 +39,18 @@ enum McpGoPaths {
         return installed.standardizedFileURL.path
     }()
     static let agentDirectory = userHome.appendingPathComponent("Library/LaunchAgents").path
+    // Installed version is sourced from this Mac's writable runtime. This
+    // fallback also works while an older Dashboard process is still running;
+    // it never claims to know the remote ChatGPT plugin record's version.
+    static func installedMCPVersion(_ relativePath: String) -> String? {
+        let file = URL(fileURLWithPath: root).appendingPathComponent(relativePath)
+        guard let data = try? Data(contentsOf: file),
+              let value = (try? JSONSerialization.jsonObject(with: data)) as? [String:Any],
+              let version = value["version"] as? String,
+              version.range(of: #"^[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$"#,
+                            options:.regularExpression) != nil else { return nil }
+        return version
+    }
     static var shouldShowOnboarding: Bool {
         let file=userHome.appendingPathComponent(
             "Library/Application Support/McpGo/Onboarding/state.json")
@@ -80,7 +92,20 @@ extension Color {
 struct AgentState: Decodable { let loaded:Bool; let running:Bool; let pid:Int? }
 struct TerminalState: Decodable { let server:AgentState; let oneshot:AgentState; let tunnel:AgentState }
 struct BrowserState: Decodable { let browser:AgentState; let proxy:AgentState; let tunnel:AgentState; let backend:Bool; let proxyReady:Bool; let mcpReady:Bool?; let configured:Bool }
-struct HubState: Decodable { let installationRoot:String?; let busy:Bool; let terminal:TerminalState; let playwright:BrowserState }
+struct MCPVersionState: Decodable { let terminal:String?; let playwright:String? }
+struct RecoveryChannelState: Decodable { let desired:Bool; let status:String }
+struct MCPRecoveryState: Decodable {
+    let terminal:RecoveryChannelState?
+    let playwright:RecoveryChannelState?
+}
+struct HubState: Decodable {
+    let installationRoot:String?
+    let busy:Bool
+    let terminal:TerminalState
+    let playwright:BrowserState
+    let mcpVersions:MCPVersionState?
+    let recovery:MCPRecoveryState?
+}
 struct ActionResult: Decodable { let ok:Bool?; let error:String? }
 
 @MainActor final class HubModel: ObservableObject {
@@ -298,6 +323,8 @@ private struct ServicePanel: View {
     let up: Bool
     let partial: Bool
     let footnote: String
+    let mcpVersion: String?
+    let recoveryStatus: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -311,6 +338,18 @@ private struct ServicePanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(name).font(.system(size: 17, weight: .semibold)).foregroundStyle(Palette.ink)
                     Text(sub).font(.system(size: 12)).foregroundStyle(Palette.muted)
+                    if let version = mcpVersion {
+                        Text("Установленный MCP: v" + version)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Palette.quiet)
+                            .accessibilityLabel("Установленная версия локального MCP-сервера " + version)
+                    }
+                    if let status = recoveryStatus {
+                        Text("Автовосстановление: " + status)
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(Palette.quiet)
+                            .accessibilityHint("Локальная проверка, не гарантия связи до ChatGPT")
+                    }
                 }
                 Spacer(minLength: 12)
                 StatusPill(up: up, partial: partial)
@@ -391,7 +430,7 @@ private struct SidebarView: View {
                         .font(.system(size: 17, weight: .bold, design: .rounded))
                         .foregroundStyle(Palette.ink)
                     if Bundle.main.bundleIdentifier == "local.mcphub.native.dev" {
-                        Text("DEV PREVIEW · НЕ РЕЛИЗ")
+                        Text("DEV v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") + " · НЕ РЕЛИЗ")
                             .font(.system(size: 9, weight: .bold, design: .monospaced))
                             .foregroundStyle(Palette.warning)
                     } else {
@@ -571,6 +610,20 @@ private struct DashboardView: View {
         return p.browser.running && p.backend && p.proxy.running && p.proxyReady && (p.mcpReady == true) && p.tunnel.running
     }
     private var activeCount: Int { (terminalOn ? 1 : 0) + (browserOn ? 1 : 0) }
+    private func recoveryTitle(_ channel: RecoveryChannelState?) -> String? {
+        guard let channel else { return nil }
+        if !channel.desired { return "выключено" }
+        switch channel.status {
+        case "CONNECTED": return "локальный туннель готов"
+        case "RECOVERING": return "переподключение"
+        case "DEGRADED": return "проверка соединения"
+        case "AUTH_REQUIRED": return "требуется авторизация"
+        case "NEEDS_ATTENTION": return "требуется проверка"
+        case "UNMONITORED": return "нужен перезапуск туннеля"
+        case "OFFLINE": return "локальная служба недоступна"
+        default: return "проверка"
+        }
+    }
     private var terminalParts: [ServiceLine] {
         guard let t=model.state?.terminal else {
             return ["Command server", "OneShot / jobs", "Secure MCP tunnel"].enumerated().map {
@@ -625,6 +678,10 @@ private struct DashboardView: View {
                                 .foregroundStyle(Palette.ink)
                             Text("Управление подключениями ChatGPT на этом Mac")
                                 .font(.system(size: 12.5)).foregroundStyle(Palette.muted)
+                            Text("McpGo v" + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—") +
+                                 (Bundle.main.bundleIdentifier == "local.mcphub.native.dev" ? " · Dev-сборка" : ""))
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(Palette.quiet)
                         }
                         Spacer()
                         Button {
@@ -678,16 +735,22 @@ private struct DashboardView: View {
                     .padding(.top, 3)
 
                     let t=model.state?.terminal
-                    ServicePanel(name:"Терминал", sub:"ChatTerminalHub  ·  Команды и задачи Mac", symbol:"terminal", group:"terminal",
+                    ServicePanel(name:"Терминал", sub:"Локальный MCP  ·  Команды и задачи Mac", symbol:"terminal", group:"terminal",
                                  components:terminalParts, up:terminalOn,
                                  partial:(t.map{$0.server.running || $0.oneshot.running || $0.tunnel.running} ?? false),
-                                 footnote:"Автозапуск при входе в macOS")
+                                 footnote:"Автозапуск при входе в macOS",
+                                 mcpVersion:model.state?.mcpVersions?.terminal ??
+                                     McpGoPaths.installedMCPVersion("terminal/mcp-version.json"),
+                                 recoveryStatus:recoveryTitle(model.state?.recovery?.terminal))
 
                     let p=model.state?.playwright
                     ServicePanel(name:"Playwright", sub:"Личный Google Chrome  ·  CDP", symbol:"globe", group:"playwright",
                                  components:browserParts, up:browserOn,
                                  partial:(p.map{$0.browser.running || $0.proxy.running || $0.tunnel.running} ?? false),
-                                 footnote:"Запускается вручную по необходимости")
+                                 footnote:"Запускается вручную по необходимости",
+                                 mcpVersion:model.state?.mcpVersions?.playwright ??
+                                     McpGoPaths.installedMCPVersion("playwright/node_modules/@playwright/mcp/package.json"),
+                                 recoveryStatus:recoveryTitle(model.state?.recovery?.playwright))
 
                     HStack(spacing: 8) {
                         if model.busy {

@@ -5,8 +5,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { spawn } = require('node:child_process');
 const jobs = require('./job_runtime.js');
+const MCP_VERSION=require('./mcp-version.json').version;
 
 const DIR = __dirname;
 const CONFIG = process.env.MCPGO_ONESHOT_CONFIG || path.join(os.homedir(),'Library','Application Support','McpGo','terminal','stateless-config.json');
@@ -27,12 +27,14 @@ if (!/^exec\/[a-f0-9]{64}$/.test(config.mcpPath)) {
 
 const tool = {
   name: 'terminal_exec',
-  description: 'Short one-shot macOS command, default timeout 30 sec, maximum 90 sec. For longer tests/builds use durable job_start, then job_status and job_logs. If ChatGPT response disconnects, recover with job_recent and NEVER restart an uncertain job.',
+  description: 'Execute a macOS command via the persistent McpGo job runtime (default 30 sec, max 90 sec). Each call automatically gets job_id/operation_id, even if you did not provide one. After connection loss call mcpgo_recover/job_status: NEVER blindly re-execute. Optional stable request_id prevents duplicate execution; optional resource_key locks known conflicting resources only. Four unrelated agents remain parallel.',
   inputSchema: {
     type: 'object',
     properties: {
       command: { type: 'string' },
       cwd: { type: 'string' },
+      request_id: {type:'string',minLength:8,maxLength:128,description:'Optional client idempotency token. If omitted, the generated job_id can still be recovered by mcpgo_recover after disconnect.'},
+      resource_key: {type:'string',description:'Optional exclusive lock for a known conflicting operation, e.g. deploy:gafus-prod, release:mcpgo, git:repo-main. Unrelated operations always execute in parallel.'},
       timeout_ms: {
         type: 'integer',
         minimum: 1000,
@@ -44,118 +46,42 @@ const tool = {
   }
 };
 
-const MAX_OUTPUT = 12000;
 let active = 0;
-
-function outputCollector() {
-  let buffer = Buffer.alloc(0);
-  let total = 0;
-
-  return {
-    add(chunk) {
-      total += chunk.length;
-      buffer = Buffer.concat([buffer, chunk]);
-      if (buffer.length > MAX_OUTPUT) {
-        buffer = buffer.subarray(buffer.length - MAX_OUTPUT);
-      }
-    },
-    value() {
-      return {
-        text: buffer.toString('utf8'),
-        bytes: total,
-        truncated: total > MAX_OUTPUT
-      };
-    }
-  };
-}
-
-function execute(args) {
-  return new Promise((resolve, reject) => {
-    if (typeof args.command !== 'string' ||
-        !args.command.trim() ||
-        Buffer.byteLength(args.command) > 16000) {
-      return reject(new Error('INVALID_COMMAND'));
-    }
-
-    const cwd = args.cwd || os.homedir();
-    if (!path.isAbsolute(cwd) ||
-        !fs.existsSync(cwd) ||
-        !fs.statSync(cwd).isDirectory()) {
-      return reject(new Error('INVALID_CWD'));
-    }
-
-    const timeout = args.timeout_ms ?? 30000;
-    if (!Number.isInteger(timeout) ||
-        timeout < 1000 || timeout > 90000) {
-      return reject(new Error('INVALID_TIMEOUT'));
-    }
-
-    const started = Date.now();
-    const stdout = outputCollector();
-    const stderr = outputCollector();
-
-    let timedOut = false;
-    let finished = false;
-    let spawnError = null;
-
-    active++;
-
-    const child = spawn('/bin/zsh', ['-lc', args.command], {
-      cwd,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: {
-        HOME: os.homedir(),
-        USER: os.userInfo().username,
-        LOGNAME: os.userInfo().username,
-        PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
-        LANG: 'en_US.UTF-8',
-        TMPDIR: os.tmpdir()
-      }
-    });
-
-    const timer = setTimeout(() => {
-      timedOut = true;
-      if (child.pid) {
-        try { process.kill(-child.pid, 'SIGTERM'); } catch {}
-        setTimeout(() => {
-          if (!finished) {
-            try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-          }
-        }, 1500).unref();
-      }
-    }, timeout);
-
-    child.stdout.on('data', chunk => stdout.add(chunk));
-    child.stderr.on('data', chunk => stderr.add(chunk));
-
-    child.on('error', error => {
-      spawnError = error.message;
-    });
-
-    child.on('close', (code, signal) => {
-      finished = true;
-      clearTimeout(timer);
-      active--;
-
-      const out = stdout.value();
-      const err = stderr.value();
-
-      resolve({
-        exit_code: code,
-        signal: signal || null,
-        timed_out: timedOut,
-        spawn_error: spawnError,
-        duration_ms: Date.now() - started,
-        stdout: out.text,
-        stderr: err.text,
-        stdout_bytes: out.bytes,
-        stderr_bytes: err.bytes,
-        stdout_truncated: out.truncated,
-        stderr_truncated: err.truncated
-      });
-    });
-  });
+// Preserve the familiar terminal_exec API, but run commands through the SAME
+// durable job engine as job_start. This creates recoverable IDs automatically.
+// An HTTP/MCP disconnect never kills or replays an existing command.
+async function execute(args) {
+  active++;
+  try {
+    const timeout_ms=args.timeout_ms??30000;
+    if(!Number.isInteger(timeout_ms)||timeout_ms<1000||timeout_ms>90000)
+      throw Error('INVALID_TIMEOUT');
+    const started=jobs.startJob({...args,timeout_ms});
+    const job_id=started.job_id;
+    const deadline=Date.now()+timeout_ms+2000;
+    let status;
+    do {
+      status=jobs.getStatus({job_id});
+      if(['exited','cancelled','launch_error','unknown','stalled'].includes(status.state))break;
+      const remaining=deadline-Date.now();
+      if(remaining<=0)break;
+      await jobs.watch({job_id,wait_ms:Math.min(2500,remaining)});
+    } while(Date.now()<deadline);
+    const result=jobs.result({job_id});
+    return {
+      operation_id:job_id,job_id,deduplicated:!!started.deduplicated,
+      state:result.state,exit_code:result.exit_code??null,
+      signal:result.signal??null,timed_out:!!result.timed_out,
+      spawn_error:result.spawn_error??null,duration_ms:result.duration_ms??null,
+      stdout:result.stdout||'',stderr:result.stderr||'',
+      stdout_bytes:result.stdout_bytes??0,stderr_bytes:result.stderr_bytes??0,
+      stdout_truncated:!!result.stdout_truncated,
+      stderr_truncated:!!result.stderr_truncated,
+      result_ready:result.result_ready===true,
+      note:result.result_ready?'Durable result confirmed.':
+        'The command may still run or may have applied changes. Call job_status or mcpgo_recover; NEVER automatically re-execute.'
+    };
+  } finally {active--}
 }
 
 function respond(res, status, obj) {
@@ -213,8 +139,9 @@ const server = http.createServer(async (req, res) => {
         capabilities: { tools: {} },
         serverInfo: {
           name: 'ChatTerminalHub OneShot',
-          version: '1.1.0'
-        }
+          version: MCP_VERSION
+        },
+        instructions: 'Every terminal_exec and job_start is a durable operation with job_id. On lost response call mcpgo_recover and inspect job_status before repeating. Do not replay uncertain operations. resource_key locks only known conflicting resources; unrelated agents run concurrently.'
       };
     } else if (method === 'ping') {
       result = {};
@@ -240,7 +167,7 @@ const server = http.createServer(async (req, res) => {
         };
       }
     } else if (method === 'tools/call' &&
-               ['job_start', 'job_status', 'job_logs', 'job_recent','job_cancel','job_result','job_watch','job_output'].includes(params?.name)) {
+               ['job_start', 'job_status', 'job_logs', 'job_recent','job_cancel','job_result','job_watch','job_output','mcpgo_recover','resource_lock_status'].includes(params?.name)) {
       try {
         const args = params.arguments || {};
         const value = params.name === 'job_start' ? jobs.startJob(args)
@@ -250,6 +177,8 @@ const server = http.createServer(async (req, res) => {
                     : params.name === 'job_result' ? jobs.result(args)
                     : params.name === 'job_watch' ? await jobs.watch(args)
                     : params.name === 'job_output' ? jobs.output(args)
+                    : params.name === 'mcpgo_recover' ? jobs.recover(args)
+                    : params.name === 'resource_lock_status' ? jobs.lockStatus(args)
                     : jobs.logs(args);
         result = { content: [{ type: 'text', text: JSON.stringify(value) }] };
       } catch (error) {

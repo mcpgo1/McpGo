@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
-import {POLL_MS,ERROR_STABLE_MS,SUSPECT_STABLE_MS,updateWatchdog,noteReload,canRetryAfterReload,continuationOpportunity} from '../stall-watchdog.mjs';
+import {POLL_MS,ERROR_STABLE_MS,SUSPECT_STABLE_MS,updateWatchdog,noteReload,canRetryAfterReload,recoveryObservation,continuationOpportunity} from '../stall-watchdog.mjs';
 import {observeExistingChat,reloadStalledChat,pageInspection,classifyAgent} from '../cdp-delivery.mjs';
 
 const url='https://chatgpt.com/c/00000000-0000-4000-8000-000000000001';
@@ -42,9 +42,14 @@ test('normal busy no button, explicit error still tracked even after button disa
  const result=drive([[0,{...broken,stop:false}],[ERROR_STABLE_MS+1,{...broken,stop:false}]]);
  assert.equal(result.action,'reload');
 });
-test('fresh clean observation after committed refresh can re-arm ordinary preflight',()=>{
+test('refresh requires two stable clean observations before rearming',()=>{
  const s=noteReload(drive([[0,broken],[ERROR_STABLE_MS+1,broken]]).next,ERROR_STABLE_MS+1);
- assert.equal(canRetryAfterReload(s,clean),true);
+ const observed={...clean,pageReady:'complete'};
+ const first=recoveryObservation(s,observed,20000);
+ assert.equal(first.ready,false);
+ assert.equal(canRetryAfterReload(first.next,observed,20001),false);
+ const second=recoveryObservation(first.next,observed,21001);
+ assert.equal(second.ready,true);
  assert.equal(canRetryAfterReload(s,busy),false);
  assert.equal(canRetryAfterReload(s,broken),false);
 });
@@ -106,7 +111,7 @@ test('DOM inspection recognizes connection-interrupted banner',()=>{
  const location={origin:'https://chatgpt.com',pathname:'/c/00000000-0000-4000-8000-000000000001'};
  const snapshot=vm.runInNewContext('('+pageInspection+')()',{document,location});
  assert.equal(snapshot.connectionInterrupted,true);
- assert.equal(classifyAgent(snapshot,url).kind,'busy');
+ assert.equal(classifyAgent(snapshot,url).kind,'interrupted');
 });
 
 test('quoted connection error in a user message is not treated as an actual UI failure',()=>{
@@ -165,4 +170,24 @@ test('never resume while streaming, draft, transport error or recent successful 
  assert.equal(continuationOpportunity(task,{...page,connectionInterrupted:true},100_000),null);
  assert.equal(continuationOpportunity({...task,status:'paused'},page,100_000),null);
  assert.ok(continuationOpportunity(task,page,100_000));
+});
+
+test('assistant mutation revision shows progress without writing response text',()=>{
+ const a=updateWatchdog(null,{...busy,assistantRevision:2,progressText:'Secret answer'},1000);
+ const b=updateWatchdog(a.next,{...busy,assistantRevision:3,progressText:'Secret answer'},5000);
+ assert.equal(b.action,'busy');
+ assert.equal(b.next.lastProgressAt,new Date(5000).toISOString());
+ assert.ok(!JSON.stringify(b.next).includes('Secret answer'));
+});
+
+test('DOM changes after reconnect restart the stable-ready confirmation window',()=>{
+ const initial=noteReload(updateWatchdog(null,broken,1000).next,1000);
+ const cleanObs={...clean,pageReady:'complete',assistantRevision:3,userCount:8,lastUserHash:'a'};
+ const a=recoveryObservation(initial,cleanObs,2000);
+ const b=recoveryObservation(a.next,{...cleanObs,assistantRevision:4},3500);
+ assert.equal(b.ready,false);
+ assert.equal(b.next.recoveryCleanCount,1);
+ const c=recoveryObservation(b.next,{...cleanObs,assistantRevision:4},4600);
+ assert.equal(c.ready,true);
+ assert.equal(JSON.stringify(c.next).includes('Private chat'),false);
 });

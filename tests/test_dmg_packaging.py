@@ -27,6 +27,13 @@ class DmgPackagingTests(unittest.TestCase):
         self.assertNotIn("release", builder.SOURCES)
         self.assertIn("action-guard.mjs", builder.SOURCES["playwright"])
         self.assertIn("job_worker.js", builder.SOURCES["terminal"])
+        for entry in ("resource_locks.js", "resource_policy.js", "mcp-version.json"):
+            self.assertIn(entry, builder.SOURCES["terminal"])
+        for entry in ("tunnel-health.mjs", "tunnel-recovery.mjs", "mcp-versions.mjs"):
+            self.assertIn(entry, builder.SOURCES["dashboard"])
+        for entry in ("chat-state.mjs", "guarded-send.mjs", "browser-events.mjs",
+                      "conversation-fsm.mjs"):
+            self.assertIn(entry, builder.SOURCES["autosend"])
         for parent, files in builder.SOURCES.items():
             self.assertFalse(parent.startswith("."))
             for name in files:

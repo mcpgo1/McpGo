@@ -6,4 +6,13 @@ if [[ -z "$CONTROL_PLANE_API_KEY" ]]; then
   exit 1
 fi
 export CONTROL_PLANE_API_KEY
-exec "${MCPGO_TUNNEL_CLIENT:-$(command -v tunnel-client)}" run --profile chat-terminal-hub
+# Local health only: no publicly exposed listener.
+umask 077
+HEALTH_DIR="$HOME/Library/Application Support/McpGo/terminal"
+/bin/mkdir -p -m 700 "$HEALTH_DIR"
+/bin/chmod 700 "$HEALTH_DIR"
+HEALTH_FILE="$HEALTH_DIR/tunnel-health.url"
+/bin/rm -f "$HEALTH_FILE"
+exec "${MCPGO_TUNNEL_CLIENT:-$(command -v tunnel-client)}" run --profile chat-terminal-hub \
+  --health.listen-addr 127.0.0.1:0 \
+  --health.url-file "$HEALTH_FILE"

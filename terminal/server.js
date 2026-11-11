@@ -6,6 +6,8 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
 const {StringDecoder} = require('node:string_decoder');
+const jobs=require('./job_runtime.js');
+const MCP_VERSION=require('./mcp-version.json').version;
 const APP = __dirname;
 const CONFIG_PATH = path.join(os.homedir(),'Library','Application Support','McpGo','terminal','config.json');
 fs.mkdirSync(path.dirname(CONFIG_PATH),{recursive:true,mode:0o700});
@@ -108,10 +110,25 @@ function toolSchemas(){
     {name:'terminal_send',description:'Queue an input or command on this chat terminal and return IMMEDIATELY, without waiting for completion. Then call terminal_read for output. enter=false sends raw text without newline.',inputSchema:{type:'object',properties:{...sessionFields,text:{type:'string'},enter:{type:'boolean',default:true}},required:['session_id','session_key','text'],additionalProperties:false}},
     {name:'terminal_read',description:'Read new output and state from this chat terminal, passing next as since in follow-up reads.',inputSchema:{type:'object',properties:{...sessionFields,since:{type:'integer',default:0}},required:['session_id','session_key'],additionalProperties:false}},
     {name:'terminal_interrupt',description:'Send Ctrl+C to the interactive terminal (foreground job).',inputSchema:{type:'object',properties:sessionFields,required:['session_id','session_key'],additionalProperties:false}},
-    {name:'terminal_close',description:'Close only this terminal, ending its shell and foreground processes.',inputSchema:{type:'object',properties:sessionFields,required:['session_id','session_key'],additionalProperties:false}}
+    {name:'terminal_close',description:'Close only this terminal, ending its shell and foreground processes.',inputSchema:{type:'object',properties:sessionFields,required:['session_id','session_key'],additionalProperties:false}},
+    ...jobs.tools
   ];
 }
-function performTool(name,a){
+async function performTool(name,a){
+  // Job registry is shared with one-shot MCP; no PTY session key needed for
+  // tools that manage independent detached jobs.
+  if(jobs.tools.some(t=>t.name===name)) {
+    if(name==='job_start')return jobs.startJob(a);
+    if(name==='job_status')return jobs.getStatus(a);
+    if(name==='job_logs')return jobs.logs(a);
+    if(name==='job_recent')return jobs.recent(a);
+    if(name==='job_cancel')return jobs.cancel(a);
+    if(name==='job_result')return jobs.result(a);
+    if(name==='job_watch')return await jobs.watch(a);
+    if(name==='job_output')return jobs.output(a);
+    if(name==='mcpgo_recover')return jobs.recover(a);
+    if(name==='resource_lock_status')return jobs.lockStatus(a);
+  }
   if(name==='terminal_create')return createSession(a.name);
   const s=sessions.get(a.session_id);
   if(!s||!equal(a.session_key,s.key))throw Error('SESSION_NOT_FOUND_OR_FORBIDDEN');
@@ -127,12 +144,12 @@ async function rpc(req,res){
   if(p.id===undefined){res.writeHead(202,{'Cache-Control':'no-store'});return res.end();}
   try{
     let result;
-    if(p.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'ChatTerminalHub',version:'0.1.0'},instructions:'Each ChatGPT conversation must call terminal_create once and keep its own private session_id and session_key. Commands return immediately; poll terminal_read as needed.'};
+    if(p.method==='initialize')result={protocolVersion:'2025-06-18',capabilities:{tools:{}},serverInfo:{name:'ChatTerminalHub',version:MCP_VERSION},instructions:'For interactive PTY, each conversation must use its own terminal_create/session_key; terminal_send is an interactive write, NOT a durable job receipt. For recoverable commands use job_start and job_status. After an interrupted response call mcpgo_recover BEFORE repeating any command. Never replay unknown shell or browser actions.'};
     else if(p.method==='ping')result={};
     else if(p.method==='tools/list')result={tools:toolSchemas()};
     else if(p.method==='tools/call'){
       const args=p.params?.arguments||{};
-      try {result={content:[{type:'text',text:JSON.stringify(performTool(p.params?.name,args))}]};}
+      try {result={content:[{type:'text',text:JSON.stringify(await performTool(p.params?.name,args))}]};}
       catch(e){result={isError:true,content:[{type:'text',text:e.message}]};}
     }else return json(res,200,{jsonrpc:'2.0',id:p.id,error:{code:-32601,message:'Method not found'}});
     return json(res,200,{jsonrpc:'2.0',id:p.id,result});

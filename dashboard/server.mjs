@@ -6,6 +6,9 @@ import os from 'node:os';
 import {execFileSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {probeMcp} from './mcp-health.mjs';
+import {TunnelRecovery} from './tunnel-recovery.mjs';
+import {checkHealthFile} from './tunnel-health.mjs';
+import {mcpVersions} from './mcp-versions.mjs';
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(DIR, '..');
@@ -24,6 +27,46 @@ const TUNNEL_DIR = path.join(process.env.HOME, 'Library/Application Support/Chat
 const TUNNEL_SCRIPT = path.join(TUNNEL_DIR, 'run-tunnel.sh');
 const TUNNEL_SOURCE = path.join(ROOT, 'terminal/run-tunnel.sh');
 const TUNNEL_PLIST = path.join(AGENTS, TUNNEL_LABEL + '.plist');
+
+const RECOVERY_FILE=path.join(os.homedir(),'Library','Application Support','McpGo','tunnel-recovery-state.json');
+const RECOVERY_URL_FILES={
+  terminal:path.join(os.homedir(),'Library','Application Support','McpGo','terminal','tunnel-health.url'),
+  playwright:path.join(os.homedir(),'Library','Application Support','McpGo','playwright','tunnel-health.url')
+};
+const RECOVERY_LABELS={terminal:TUNNEL_LABEL,playwright:'com.mcphub.playwright.tunnel'};
+function agentOwned(label){
+  const plist=path.join(AGENTS,label+'.plist');
+  try {
+    const owner=execFileSync('/usr/libexec/PlistBuddy',
+      ['-c','Print :EnvironmentVariables:MCPGO_INSTALL_ROOT',plist],
+      {encoding:'utf8',timeout:3500,stdio:['ignore','pipe','ignore']}).trim();
+    return owner===ROOT;
+  }catch{return false}
+}
+const recovery=new TunnelRecovery({
+  file:RECOVERY_FILE,
+  canAct:()=>!busy,
+  probe:async target=>{
+    const label=RECOVERY_LABELS[target],j=job(label);
+    if(!j.running)return {health:'down',reason:'TUNNEL_PROCESS_STOPPED',pid:null};
+    // Do not touch the browser itself. A stopped proxy is not a reason
+    // to repeatedly restart the outbound tunnel.
+    if(target==='playwright' && !(await alive(ports.proxy)))
+      return {health:'offline',reason:'LOCAL_MCP_BACKEND_UNAVAILABLE',pid:j.pid};
+    return {...await checkHealthFile(RECOVERY_URL_FILES[target]),pid:j.pid};
+  },
+  restart:async(target,observed)=>{
+    if(busy)return false;
+    const label=RECOVERY_LABELS[target],j=job(label);
+    if(!j.loaded||!agentOwned(label))return false;
+    if(observed?.pid && j.pid!==observed.pid)return false;
+    if(target==='playwright' && !(await alive(ports.proxy)))return false;
+    // Never restart terminal/server, job_worker, Chrome or MCP proxy here.
+    call(['kickstart',...(j.running?['-k']:[]),DOMAIN+'/'+label]);
+    return true;
+  }
+});
+
 
 function plistEdit(args) {
   execFileSync('/usr/libexec/PlistBuddy', ['-c', args, TUNNEL_PLIST], {stdio:'pipe', timeout:5000});
@@ -115,7 +158,7 @@ async function status() {
   const hasFile = n => {try {return fs.statSync(`${keyDir}/${n}`).size>0;}catch{return false;}};
   const hasKeychain = (() => {try {execFileSync('/usr/bin/security',['find-generic-password','-a',os.userInfo().username,'-s','com.mcphub.playwright.openai.tunnel'],{stdio:'ignore',timeout:2500});return true;}catch{return false;}})();
   const configured=hasFile('tunnel.id') && (hasFile('tunnel.key') || hasKeychain);
-  return {installationRoot:ROOT,busy, terminal:{server:terminal[0],oneshot:terminal[1],tunnel:terminal[2]},playwright:{browser:browser[0],proxy:browser[1],tunnel:browser[2],backend,proxyReady:proxy,mcpReady,configured},updatedAt:new Date().toISOString()};
+  return {installationRoot:ROOT,busy,mcpVersions:mcpVersions(ROOT),recovery:recovery.snapshot(),terminal:{server:terminal[0],oneshot:terminal[1],tunnel:terminal[2]},playwright:{browser:browser[0],proxy:browser[1],tunnel:browser[2],backend,proxyReady:proxy,mcpReady,configured},updatedAt:new Date().toISOString()};
 }
 function load(label) {
   if(label===TUNNEL_LABEL) ensureTerminalTunnel();
@@ -207,7 +250,14 @@ const server = http.createServer(async (req,res)=>{
       const {group,action:verb}=JSON.parse(body);
       if(group==='system' && verb==='logs') execFileSync('/usr/bin/open',[`${ROOT}/logs`],{timeout:4000});
       else if(group==='system' && verb==='folder') execFileSync('/usr/bin/open',[ROOT],{timeout:4000});
-      else await action(group,verb);
+      else {
+        if(verb==='stop' && ['terminal','terminal-tunnel','playwright'].includes(group))
+          recovery.setDesired(group==='playwright'?'playwright':'terminal',false);
+        await action(group,verb);
+        if((verb==='start'||verb==='restart') &&
+           ['terminal','terminal-tunnel','playwright'].includes(group))
+          recovery.setDesired(group==='playwright'?'playwright':'terminal',true);
+      }
       return json(res,200,{ok:true,status:await status()});
     } catch(e) {return json(res,500,{error:String(e.message||'Ошибка').slice(0,280),status:await status()});}
     finally {busy=false;}
@@ -222,3 +272,7 @@ const server = http.createServer(async (req,res)=>{
 });
 try { ensureTerminalTunnel(); } catch(e) { console.error('Tunnel agent setup:', e.message); }
 server.listen(PORT,'127.0.0.1',()=>console.log(`McpGo ready: http://127.0.0.1:${PORT}`));
+// Recovery is opt-in through the explicit Dashboard Start action. No legacy
+// tunnel, browser or terminal job is restarted when this code is installed.
+setInterval(()=>{if(!busy)void recovery.tick().catch(e=>
+  console.error('Tunnel recovery check failed:',e.code||'UNKNOWN'))},15000).unref();

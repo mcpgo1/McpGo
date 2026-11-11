@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import {classifyAgent,parsePageResult,extractTabs,pageInspection,deliverViaPlaywright,confirmsNewUserMessage} from '../cdp-delivery.mjs';
+import {sameReadySnapshot,classifyChatState} from '../chat-state.mjs';
 const url='https://chatgpt.com/c/00000000-0000-4000-8000-000000000001';
 const task={url,message:'Test scheduler CDP'};
 const page={url,ready:'complete',editorCount:1,editorText:'',editorSelector:'#prompt-textarea',
@@ -15,12 +16,19 @@ function fake(initial={}){
   if(name==='browser_tabs' && args.action==='list')return '- 9: '+url;
   if(name==='browser_tabs' && args.action==='select')return 'selected';
   if(name==='browser_tabs' && args.action==='close')return 'closed';
+  if(name==='browser_evaluate' && args.function.includes('function guardedClickInPage')){
+   assert.equal(committed,true,'operation must be persisted before the click');
+   assert.equal(args.function.includes('send.click()'),true);
+   if(state.stop||state.busyText)return '### Result\n'+JSON.stringify({status:'refused',code:'GENERATION_ACTIVE'});
+   state.userCount++;state.lastUserText=task.message;
+   return '### Result\n'+JSON.stringify({status:'clicked',code:'CLICK_DISPATCHED'});
+  }
   if(name==='browser_evaluate')return '### Result\n```json\n'+JSON.stringify(state)+'\n```';
   if(name==='browser_type'){state.editorText=args.text;state.sendEnabled=!!args.text;return 'typed';}
-  if(name==='browser_click'){assert.equal(args.target,'[data-testid="send-button"]');assert.ok(committed);state.userCount++;state.lastUserText=task.message;return 'clicked';}
+  if(name==='browser_click')throw Error('Standalone browser_click must never be used for AutoSend');
   throw Error('unexpected '+name);
  }};
- return {client,calls,state,commit:()=>{committed=true;}};
+ return {client,calls,state,commit:()=>{committed=true;return 'autosend:00000000-0000-4000-8000-000000000001';}};
 }
 test('readiness fails closed for busy agent, draft, wrong conversation and ambiguous page',()=>{
  for (const p of [{stop:true},{busyText:true},{editorText:'human draft'}])assert.equal(classifyAgent({...page,...p},url).kind,'busy');
@@ -64,9 +72,11 @@ test('wrong destination never types or clicks',async()=>{
 });
 test('successful send persists before click and verifies new user message',async()=>{
  const f=fake();let persisted=false;
- const result=await deliverViaPlaywright(task,async()=>{persisted=true;f.commit();},{client:f.client});
+ const result=await deliverViaPlaywright(task,async()=>{persisted=true;return f.commit();},{client:f.client});
  assert.equal(result.status,'verified');assert.ok(persisted);
- assert.equal(f.calls.filter(x=>x.name==='browser_click').length,1);
+ assert.equal(f.calls.filter(x=>x.name==='browser_evaluate'&&x.args.function.includes('function guardedClickInPage')).length,1);
+ assert.equal(f.calls.filter(x=>x.name==='browser_click').length,0);
+
  assert.equal(f.calls.filter(x=>x.name==='browser_type').length,1);
  assert.ok(!f.calls.some(x=>x.name==='browser_tabs' && x.args.action==='new'),'reuse opened personal Chrome tab');
 });
@@ -118,7 +128,7 @@ test('a repeated phrase in page text cannot falsely confirm a click',async()=>{
  const original=f.client.tool;
  f.client.tool=async(name,args)=>{
   const value=await original(name,args);
-  if(name==='browser_click'){
+  if(name==='browser_evaluate' && args.function.includes('function guardedClickInPage')){
     // New ChatGPT response quoted the same text, but there was no new
     // observed user-authored bubble, so the click outcome is ambiguous.
     f.state.userCount--;
@@ -129,5 +139,71 @@ test('a repeated phrase in page text cannot falsely confirm a click',async()=>{
  };
  const result=await deliverViaPlaywright(task,async()=>f.commit(),{client:f.client,wait:async()=>{}});
  assert.equal(result.status,'pending');
- assert.equal(f.calls.filter(c=>c.name==='browser_click').length,1,'never retry an ambiguous click');
+ assert.equal(f.calls.filter(c=>c.name==='browser_evaluate'&&c.args.function.includes('function guardedClickInPage')).length,1,'never retry an ambiguous click');
+});
+
+test('stable preflight rejects changing assistant progress and never types',async()=>{
+ const f=fake();
+ const original=f.client.tool;
+ let reads=0;
+ f.client.tool=async(name,args)=>{
+  if(name==='browser_evaluate' && ++reads===2)f.state.stop=true;
+  return original(name,args);
+ };
+ const result=await deliverViaPlaywright(task,()=>{throw Error('must not click')},
+  {client:f.client,wait:async()=>{}});
+ assert.equal(result.status,'deferred');
+ assert.ok(!f.calls.some(x=>x.name==='browser_click'||x.name==='browser_type'));
+});
+test('explicit interruption is not misclassified as normal busy or ready',()=>{
+ const state={...page,connectionInterrupted:true,stop:true};
+ assert.equal(classifyChatState(state,url).kind,'interrupted');
+ assert.equal(classifyChatState({...page,stop:true,lastAssistantMutationAt:1000},url,
+  1000+13*60*1000).kind,'stalled');
+ assert.equal(classifyChatState({...page,stop:false,busyText:false},url).kind,'ready');
+});
+test('DOM revision changes invalidate a seemingly stable ready state',()=>{
+ const a={...page,assistantRevision:3};
+ assert.equal(sameReadySnapshot(a,{...a,assistantRevision:4}),false);
+ assert.equal(sameReadySnapshot(a,{...a,assistantRevision:3}),true);
+});
+test('in-page MutationObserver tracks assistant progress, not user draft text',()=>{
+ let cb,observeCount=0;
+ const main={innerText:'Conversation contents'};
+ const win={};
+ class FakeObserver{
+  constructor(callback){cb=callback}
+  observe(root){assert.equal(root,main);observeCount++}
+  disconnect(){}
+ }
+ const document={readyState:'complete',title:'A real conversation',
+  querySelectorAll(){return []},
+  querySelector(selector){return selector==='main'?main:null}};
+ const location={origin:'https://chatgpt.com',pathname:'/c/00000000-0000-4000-8000-000000000001'};
+ const inspect=()=>vm.runInNewContext('('+pageInspection+')()',
+  {document,location,window:win,MutationObserver:FakeObserver});
+ const before=inspect();
+ assert.equal(before.assistantRevision,0);
+ const privateText='CONFIDENTIAL_ASSISTANT_TEXT';
+ const target={nodeType:1,textContent:privateText,
+  closest(selector){return selector.includes('[data-message-author-role="assistant"]')?{}:null}};
+ cb([{target,addedNodes:[]}]);
+ const after=inspect();
+ assert.equal(after.assistantRevision,1);
+ assert.equal(observeCount,1,'only one observer is installed per page');
+ assert.ok(!JSON.stringify({
+  revision:after.assistantRevision,lastChangedAt:after.lastAssistantMutationAt
+ }).includes(privateText));
+});
+test('hidden streaming indicator does not incorrectly mark an idle page busy',()=>{
+ const hidden={getClientRects(){return []}};
+ const document={readyState:'complete',title:'Conversation',
+  querySelectorAll(selector){
+   if(selector==='[data-testid="streaming-indicator"],[data-is-streaming="true"]')return [hidden];
+   return [];
+  },
+  querySelector(selector){return selector==='main'?{innerText:'Long conversation content'}:null}};
+ const location={origin:'https://chatgpt.com',pathname:'/c/00000000-0000-4000-8000-000000000001'};
+ const snapshot=vm.runInNewContext('('+pageInspection+')()',{document,location});
+ assert.equal(snapshot.busyText,false);
 });
