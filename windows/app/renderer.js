@@ -168,3 +168,21 @@ $('agent-message').onsubmit=async event=>{
  }catch(e){message(e.message,true)}finally{button.disabled=false}
 };
 void refreshHistory();
+
+const updatesStatus=$('updates-status');
+$('open-releases').onclick=()=>window.mcpgo.openReleases().catch(e=>message(e.message,true));
+$('check-updates').onclick=async()=>{
+ const button=$('check-updates');button.disabled=true;
+ updatesStatus.textContent='Проверяем GitHub Releases...';
+ $('open-update').hidden=true;
+ try{
+  const update=await window.mcpgo.checkUpdates();
+  if(update.available){
+   updatesStatus.textContent='Доступна версия '+update.version+
+    '. Скачайте её с официального GitHub Releases и сравните SHA-256.';
+   const open=$('open-update');open.hidden=false;
+   open.onclick=()=>window.mcpgo.openUpdate(update.url).catch(e=>message(e.message,true));
+  }else updatesStatus.textContent='Новых Windows Preview нет. Установлено: '+update.current;
+ }catch(error){updatesStatus.textContent='Не удалось проверить обновления: '+error.message}
+ finally{button.disabled=false}
+};

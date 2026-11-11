@@ -87,4 +87,18 @@ about the unsigned binary. Do not bypass organization security controls to
 install it. Signed production releases and securely verified auto-updates
 require an actual publisher certificate and additional release validation.
 
+## Unsigned distribution and updates
+
+The application checks GitHub Releases for newer Windows **prereleases** only when
+you click "Check for updates". It does not download, execute, install or
+replace binaries in the background. The "Open new version" action opens a
+strictly validated official github.com release page for a manual install.
+
+An SHA-256 checksum makes accidental or in-transit corruption detectable when
+compared to a trustworthy independently obtained reference; it is **not**
+an Authenticode signature or proof of publisher identity. Do not disable
+SmartScreen, Smart App Control, browser protections or antivirus software.
+If organization policy blocks unsigned executables, use the source build or
+wait for a permitted distribution method.
+
 Windows ARM64 is not included in this x64 release. WSL is not required.

@@ -5,6 +5,8 @@ const {Runtime,assertTunnelId}=require('./runtime.cjs');
 const {localRequest}=require('./local-api.cjs');
 const {onboarding}=require('./onboarding.cjs');
 const {SettingsStore}=require('./settings.cjs');
+const {checkUpdates,safeReleaseUrl}=require('./updates.cjs');
+const {version:appVersion}=require('../package.json');
 if(process.platform!=='win32')throw Error('Windows only');
 app.setAppUserModelId('ru.mcpgo.desktop');
 if(!app.requestSingleInstanceLock()){app.quit();process.exit(0)}
@@ -38,6 +40,10 @@ ipcMain.handle('mcpgo:save',async(_event,value)=>{
  runtime.browser=v.browser;await runtime.restart();publish();return publicStatus();
 });
 ipcMain.handle('mcpgo:restart',async()=>{await runtime.restart();publish();return publicStatus()});
+ipcMain.handle('mcpgo:check-updates',()=>checkUpdates(appVersion));
+ipcMain.handle('mcpgo:open-update',(_event,url)=>shell.openExternal(safeReleaseUrl(url)));
+ipcMain.handle('mcpgo:open-releases',()=>shell.openExternal('https://github.com/mcpgo1/McpGo/releases'));
+
 ipcMain.handle('mcpgo:service-read',(_event,service,route)=>localRequest(service,route));
 ipcMain.handle('mcpgo:service-action',(_event,service,route,body)=>localRequest(service,route,body));
 ipcMain.handle('mcpgo:onboard',async(_event,action,payload)=>{

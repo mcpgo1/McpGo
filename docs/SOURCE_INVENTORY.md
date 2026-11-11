@@ -122,16 +122,17 @@
 | `tests/test_terminal_tunnel.py` | 85 | `dbff99ed62fcaebb` |
 | `tools/generate_source_inventory.py` | 73 | `e2ac17dd11701d9f` |
 | `tools/sync_readme.py` | 23 | `fa026188f89f64b8` |
-| `windows/README.md` | 90 | `eb3d8e0bb64748cd` |
-| `windows/app/index.html` | 60 | `592e59cc58217b52` |
+| `windows/README.md` | 104 | `eb5a766327349505` |
+| `windows/app/index.html` | 64 | `43bf1d6a18da9298` |
 | `windows/app/local-api.cjs` | 40 | `0a8f02f165301dc2` |
-| `windows/app/main.cjs` | 92 | `b2cd3aa8e37a6e05` |
+| `windows/app/main.cjs` | 98 | `fc4c2e5be9fcbbbd` |
 | `windows/app/onboarding.cjs` | 42 | `1f365b73eca5f9c7` |
-| `windows/app/preload.cjs` | 17 | `e2a278884c9a04d4` |
-| `windows/app/renderer.js` | 170 | `2a800a589e1d2973` |
+| `windows/app/preload.cjs` | 20 | `dab3e2f4e1cdfeaf` |
+| `windows/app/renderer.js` | 188 | `36e150b7b24c6236` |
 | `windows/app/runtime.cjs` | 201 | `42f60825bc2ddfe7` |
 | `windows/app/settings.cjs` | 92 | `386fe1c2eeef52ab` |
 | `windows/app/style.css` | 5 | `df0bc4b544ae849b` |
+| `windows/app/updates.cjs` | 54 | `e2beefae1e0cd0f0` |
 | `windows/onboarding_cli.py` | 97 | `8b6ff57129445b0c` |
 | `windows/package-lock.json` | 3682 | `25d0d938c0d200c9` |
 | `windows/package.json` | 138 | `465f3e20172d5b92` |
@@ -142,8 +143,9 @@
 | `windows/tests/runtime.test.cjs` | 39 | `850402ab7b9e2fcf` |
 | `windows/tests/settings.test.cjs` | 72 | `4c19b0e01187a81a` |
 | `windows/tests/supervisor.test.cjs` | 48 | `0f743ccb41cfc1d5` |
+| `windows/tests/updates.test.cjs` | 35 | `ee9936450dbc548c` |
 | `windows/verify-build.py` | 73 | `9c18989d85dd6895` |
 
-Всего файлов в выбранном source-only срезе: **137**.
+Всего файлов в выбранном source-only срезе: **139**.
 
 Важно: отсутствие файла в этом инвентаре не доказывает отсутствие выполняемого кода где-либо на диске. Исторические или генерируемые компоненты намеренно исключены; для публичного исходного архива требуется отдельный полный аудит tree.

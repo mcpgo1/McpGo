@@ -17,6 +17,10 @@
  <div><span>Автопродолжение / таймер</span><span id="state-autosend">—</span></div>
  <div><span>Межагентный обмен</span><span id="state-messaging">—</span></div>
 </div></section>
+<section class="panel" aria-labelledby="updates-label"><div class="heading"><h3 id="updates-label">Обновления</h3><span class="subtle">Проверка без автоматической установки</span></div>
+<p id="updates-status" class="hint" role="status">Установщик неподписан. Перед запуском проверяйте SHA-256 из GitHub Releases.</p>
+<div class="actions wizard-buttons"><button class="minor" id="check-updates" type="button">Проверить обновления</button><button class="minor" id="open-releases" type="button">Все версии на GitHub</button><button class="primary" id="open-update" type="button" hidden>Открыть новую версию</button></div>
+</section>
 <section class="panel"><div class="heading"><h3>Мастер первого подключения</h3><span class="subtle">Автоматическая настройка через OpenAI Platform</span></div>
 <p class="hint">Административный ключ используется только в выбранной операции и не сохраняется. Создание туннелей и служебного аккаунта — отдельные подтверждаемые действия.</p>
 <div class="group"><label for="admin-key">OpenAI Admin API Key</label><input type="password" autocomplete="off" id="admin-key" placeholder="Только для настройки"></div>
