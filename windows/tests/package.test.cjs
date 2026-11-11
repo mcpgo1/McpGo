@@ -19,12 +19,12 @@ test('bundle allowlists exact runtime files and not private local configuration'
  const playwright=resources.find(x=>x.to==='mcpgo-runtime/playwright');
  assert.ok(terminal&&playwright);
  const expected=['stateless_server.js','job_runtime.js','job_worker.js','platform.js',
-  'resource_locks.js','resource_policy.js','mcp-version.json'];
+  'resource_locks.js','resource_policy.js','mcp-version.json','server.js','pty_worker_win.js','stateful_bridge.cjs','files_tools.cjs','dashboard.html','dashboard.js','dashboard.css'];
  for(const file of expected){
   assert.ok(terminal.filter.includes(file),file+' missing');
   assert.ok(fs.existsSync(path.join(repo,'terminal',file)),file+' absent');
  }
- assert.ok(playwright.filter.includes('node_modules/**/*'));
+ assert.ok(resources.some(x=>x.from==='../playwright/node_modules'&&x.to==='mcpgo-runtime/playwright/node_modules'&&x.filter.includes('**/*')));
  for(const file of ['restricted-proxy.mjs','action-guard.mjs'])
   assert.ok(playwright.filter.includes(file));
  for(const name of ['config.json','stateless-config.json','.env','tunnel.key','settings.json'])

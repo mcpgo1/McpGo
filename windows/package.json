@@ -37,7 +37,14 @@
           "job_worker.js",
           "resource_locks.js",
           "resource_policy.js",
-          "mcp-version.json"
+          "mcp-version.json",
+          "server.js",
+          "pty_worker_win.js",
+          "stateful_bridge.cjs",
+          "files_tools.cjs",
+          "dashboard.html",
+          "dashboard.js",
+          "dashboard.css"
         ]
       },
       {
@@ -45,13 +52,63 @@
         "to": "mcpgo-runtime/playwright",
         "filter": [
           "action-guard.mjs",
-          "restricted-proxy.mjs",
-          "node_modules/**/*"
+          "restricted-proxy.mjs"
+        ]
+      },
+      {
+        "from": "../playwright/node_modules",
+        "to": "mcpgo-runtime/playwright/node_modules",
+        "filter": [
+          "**/*"
         ]
       },
       {
         "from": "../native/McpGoMark.png",
         "to": "mcpgo-runtime/native/McpGoMark.png"
+      },
+      {
+        "from": "../autosend",
+        "to": "mcpgo-runtime/autosend",
+        "filter": [
+          "*.mjs"
+        ]
+      },
+      {
+        "from": "../messaging",
+        "to": "mcpgo-runtime/messaging",
+        "filter": [
+          "hub.py"
+        ]
+      },
+      {
+        "from": "../onboarding",
+        "to": "mcpgo-runtime/onboarding",
+        "filter": [
+          "*.py"
+        ]
+      },
+      {
+        "from": "../windows/onboarding_cli.py",
+        "to": "mcpgo-runtime/onboarding_cli.py"
+      },
+      {
+        "from": "vendor/node",
+        "to": "mcpgo-runtime/node"
+      },
+      {
+        "from": "vendor/python",
+        "to": "mcpgo-runtime/python"
+      },
+      {
+        "from": "vendor/tunnel",
+        "to": "mcpgo-runtime/tunnel"
+      },
+      {
+        "from": "node_modules/@lydell",
+        "to": "mcpgo-runtime/pty/node_modules/@lydell",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
@@ -74,5 +131,8 @@
       "createStartMenuShortcut": true,
       "shortcutName": "McpGo"
     }
+  },
+  "dependencies": {
+    "@lydell/node-pty": "^1.2.0-beta.15"
   }
 }

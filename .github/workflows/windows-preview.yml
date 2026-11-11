@@ -34,6 +34,9 @@ jobs:
       - name: Patch Playwright snapshot timeout
         shell: pwsh
         run: node playwright/patch-playwright.mjs
+      - name: Prepare signed-source pinned Windows tools
+        shell: pwsh
+        run: python windows/prepare-runtime.py
       - name: Install Windows app
         shell: pwsh
         run: npm ci --prefix windows --no-audit --no-fund
@@ -51,6 +54,14 @@ jobs:
         run: npm run dist:win
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - name: Inspect Windows bundle and checksum
+        shell: pwsh
+        run: python windows/verify-build.py
+      - name: Native Windows smoke tests
+        shell: pwsh
+        env:
+          MCPGO_WINDOWS_RUNTIME_TEST: '1'
+        run: node --test windows/tests/native-integration.test.cjs windows/tests/python-runtime.test.cjs
       - uses: actions/upload-artifact@v4
         with:
           name: McpGo-Windows-unsigned-preview

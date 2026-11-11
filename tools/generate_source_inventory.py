@@ -21,10 +21,10 @@ DIRECTORIES = {
     "launchagents": {".plist"},
     "tests": {".py"},
     "tools": {".py"},
-    "windows": {".cjs", ".js", ".html", ".css", ".json", ".md"},
+    "windows": {".cjs", ".js", ".html", ".css", ".json", ".md", ".py"},
 }
 EXCLUDE_PATH_PARTS = {
-    "legacy", "node_modules", ".cache", "artifacts", "logs",
+    "legacy", "node_modules", ".cache", "artifacts", "logs", "vendor",
     "__pycache__", "rename-backup-20261106",
     "icon-backup-20261107", "doc-revision-backup-20261107",
 }

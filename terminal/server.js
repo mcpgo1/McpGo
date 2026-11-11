@@ -10,7 +10,7 @@ const jobs=require('./job_runtime.js');
 const platform=require('./platform.js');
 const MCP_VERSION=require('./mcp-version.json').version;
 const APP = __dirname;
-const CONFIG_PATH = path.join(platform.dataRoot(),'terminal','config.json');
+const CONFIG_PATH = process.env.MCPGO_TERMINAL_CONFIG || path.join(platform.dataRoot(),'terminal','config.json');
 fs.mkdirSync(path.dirname(CONFIG_PATH),{recursive:true,mode:0o700});
 const PORT = 12847;
 const HOST = '127.0.0.1';
@@ -38,8 +38,11 @@ function createSession(name) {
   const id=crypto.randomUUID();
   const s={id,key:secret(),name:(typeof name==='string'?name:'Chat').trim().slice(0,60)||'Chat',created:new Date().toISOString(),status:'starting',pid:null,output:'',base:0,worker:null};
   const user=os.userInfo().username;
-  const env={HOME:os.homedir(), USER:user, LOGNAME:user, PATH:'/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin', TERM:'xterm-256color',LANG:'en_US.UTF-8'};
-  const child=spawn(process.env.MCPGO_PYTHON_BIN || '/usr/bin/python3',['-u',path.join(APP,'pty_worker.py')],{cwd:os.homedir(),env,stdio:['pipe','pipe','pipe']});
+  const env=platform.isWindows()?{...process.env,HOME:os.homedir(),USER:user,LOGNAME:user,TERM:'xterm-256color'}:
+    {HOME:os.homedir(),USER:user,LOGNAME:user,PATH:'/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',TERM:'xterm-256color',LANG:'en_US.UTF-8'};
+  const cmd=platform.isWindows()?process.execPath:(process.env.MCPGO_PYTHON_BIN||'/usr/bin/python3');
+  const args=platform.isWindows()?[path.join(APP,'pty_worker_win.js')]:['-u',path.join(APP,'pty_worker.py')];
+  const child=spawn(cmd,args,{cwd:os.homedir(),env,stdio:['pipe','pipe','pipe']});
   s.worker=child;
   const decoder=new StringDecoder('utf8');
   function push(v){
@@ -107,7 +110,7 @@ function body(req){
 function toolSchemas(){
   const sessionFields={session_id:{type:'string',description:'UUID returned by terminal_create'},session_key:{type:'string',description:'Private per-session capability returned by terminal_create'}};
   return [
-    {name:'terminal_create',description:'Create an independent, persistent interactive macOS zsh terminal on the user-owned Mac. Save the session_id and session_key in this chat; do not reuse another chat session.',inputSchema:{type:'object',properties:{name:{type:'string',description:'Friendly tab name, for example Chat 1'}},additionalProperties:false}},
+    {name:'terminal_create',description:'Create an independent, persistent interactive terminal (ConPTY PowerShell on Windows, zsh on macOS). Save the session_id and session_key in this chat; do not reuse another chat session.',inputSchema:{type:'object',properties:{name:{type:'string',description:'Friendly tab name, for example Chat 1'}},additionalProperties:false}},
     {name:'terminal_send',description:'Queue an input or command on this chat terminal and return IMMEDIATELY, without waiting for completion. Then call terminal_read for output. enter=false sends raw text without newline.',inputSchema:{type:'object',properties:{...sessionFields,text:{type:'string'},enter:{type:'boolean',default:true}},required:['session_id','session_key','text'],additionalProperties:false}},
     {name:'terminal_read',description:'Read new output and state from this chat terminal, passing next as since in follow-up reads.',inputSchema:{type:'object',properties:{...sessionFields,since:{type:'integer',default:0}},required:['session_id','session_key'],additionalProperties:false}},
     {name:'terminal_interrupt',description:'Send Ctrl+C to the interactive terminal (foreground job).',inputSchema:{type:'object',properties:sessionFields,required:['session_id','session_key'],additionalProperties:false}},

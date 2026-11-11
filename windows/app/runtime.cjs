@@ -4,7 +4,7 @@ const path=require('node:path');
 const net=require('node:net');
 const {spawn,spawnSync}=require('node:child_process');
 
-const ENDPOINTS=Object.freeze({terminal:12848,browser:8931,proxy:8940});
+const ENDPOINTS=Object.freeze({stateful:12847,terminal:12848,browser:8931,proxy:8940,autosend:8972,messaging:8971});
 function assertTunnelId(id) {
   if(typeof id!=='string'||!/^tunnel_[a-z0-9_]{3,128}$/.test(id))throw Error('INVALID_TUNNEL_ID');
   return id;
@@ -12,6 +12,12 @@ function assertTunnelId(id) {
 function runtimePaths(resourceRoot,userData) {
   return {
     terminal:path.join(resourceRoot,'terminal','stateless_server.js'),
+    stateful:path.join(resourceRoot,'terminal','server.js'),
+    ptyModule:path.join(resourceRoot,'pty','node_modules','@lydell','node-pty'),
+    python:path.join(resourceRoot,'python','python.exe'),
+    tunnelClient:path.join(resourceRoot,'tunnel','tunnel-client.exe'),
+    autosend:path.join(resourceRoot,'autosend','server.mjs'),
+    messaging:path.join(resourceRoot,'messaging','hub.py'),
     browser:path.join(resourceRoot,'playwright','node_modules','@playwright','mcp','cli.js'),
     proxy:path.join(resourceRoot,'playwright','restricted-proxy.mjs'),
     config:path.join(userData,'terminal','stateless-config.json'),
@@ -63,14 +69,14 @@ class Runtime {
   }
   report() {
     const state={};
-    for(const name of ['terminal','browser','proxy','terminalTunnel','browserTunnel']){
+    for(const name of ['terminal','stateful','browser','proxy','autosend','messaging','terminalTunnel','browserTunnel']){
       const item=this.entries.get(name);
       state[name]=item?.state||'stopped';
     }
     this.onChange(state);
     return state;
   }
-  state(){const snapshot={};for(const name of ['terminal','browser','proxy','terminalTunnel','browserTunnel']){
+  state(){const snapshot={};for(const name of ['terminal','stateful','browser','proxy','autosend','messaging','terminalTunnel','browserTunnel']){
     snapshot[name]=this.entries.get(name)?.state||'stopped';
   }return snapshot}
   node(script,args=[],env={}) {
@@ -80,7 +86,15 @@ class Runtime {
   async plan(name){
     const p=this.paths;
     if(name==='terminal')return this.node(p.terminal,[],{
-      MCPGO_ONESHOT_CONFIG:p.config,MCPGO_JOB_ROOT:path.join(this.userData,'OneShotJobs')});
+      MCPGO_ONESHOT_CONFIG:p.config,MCPGO_JOB_ROOT:path.join(this.userData,'OneShotJobs'),
+      MCPGO_TERMINAL_CONFIG:path.join(this.userData,'terminal','config.json'),MCPGO_ENABLE_STATEFUL:'1',MCPGO_ENABLE_FILES:'1'});
+    if(name==='stateful')return this.node(p.stateful,[],{
+      MCPGO_TERMINAL_CONFIG:path.join(this.userData,'terminal','config.json'),
+      MCPGO_JOB_ROOT:path.join(this.userData,'OneShotJobs'),MCPGO_NODE_PTY_MODULE:p.ptyModule});
+    if(name==='autosend')return this.node(p.autosend,[],{
+      MCPHUB_AUTOSEND_STATE:path.join(this.userData,'AutoSend','tasks.json')});
+    if(name==='messaging')return {file:p.python,args:[p.messaging,'serve'],cwd:path.dirname(p.messaging),
+      env:{...process.env,MCPHUB_MESSAGE_DB:path.join(this.userData,'Messaging','messages.sqlite3')}};
     if(name==='browser'){
       if(!fs.existsSync(p.browser))throw Error('PLAYWRIGHT_DEPENDENCIES_MISSING');
       fs.mkdirSync(p.artifacts,{recursive:true});
@@ -100,7 +114,7 @@ class Runtime {
       const cfg=prefix+'.yaml',health=prefix+'-health.url';
       if(!fs.existsSync(cfg))fs.writeFileSync(cfg,'{}\n',{flag:'wx',mode:0o600});
       try{fs.unlinkSync(health)}catch(e){if(e.code!=='ENOENT')throw e}
-      return {file:process.env.MCPGO_TUNNEL_CLIENT||'tunnel-client.exe',
+      return {file:process.env.MCPGO_TUNNEL_CLIENT||p.tunnelClient,
         args:clientArgs({tunnelId:cred.id,url,config:cfg,healthFile:health}),
         env:{...process.env,CONTROL_PLANE_API_KEY:cred.key},cwd:this.userData};
     }
@@ -150,14 +164,14 @@ class Runtime {
     this.running=true;
     const generation=++this.generation;
     fs.mkdirSync(this.userData,{recursive:true});
-    await Promise.all([this.launch('terminal'),this.launch('browser'),this.launch('proxy')]);
+    await Promise.all(['stateful','terminal','browser','proxy','autosend','messaging'].map(name=>this.launch(name)));
     // Wait for the real local listeners, not just a spawned process.
     const pump=async()=>{
       if(!this.running||generation!==this.generation)return;
-      const t=await listening(ENDPOINTS.terminal);
+      const [t,pty]=await Promise.all([listening(ENDPOINTS.terminal),listening(ENDPOINTS.stateful)]);
       const b=await listening(ENDPOINTS.proxy);
       if(!this.running||generation!==this.generation)return;
-      if(t&&this.entries.get('terminal')?.child?.exitCode===null &&
+      if(t&&pty&&this.entries.get('terminal')?.child?.exitCode===null &&
          !this.entries.get('terminalTunnel')?.child && !this.entries.get('terminalTunnel')?.timer)
         this.launch('terminalTunnel');
       if(b&&this.entries.get('proxy')?.child?.exitCode===null &&

@@ -88,3 +88,7 @@ release/
 **/.turbo/
 **/*.tsbuildinfo
 !website/.env.example
+
+# Locally staged, verified Windows runtime toolchains
+/windows/vendor/
+/windows/node_modules/

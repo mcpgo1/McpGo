@@ -7,6 +7,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const jobs = require('./job_runtime.js');
 const platform=require('./platform.js');
+const stateful=process.env.MCPGO_ENABLE_STATEFUL==='1'?require('./stateful_bridge.cjs'):null;
+const files=process.env.MCPGO_ENABLE_FILES==='1'?require('./files_tools.cjs'):null;
+const statefulConfig=process.env.MCPGO_TERMINAL_CONFIG||path.join(platform.dataRoot(),'terminal','config.json');
 const MCP_VERSION=require('./mcp-version.json').version;
 
 const DIR = __dirname;
@@ -147,7 +150,14 @@ const server = http.createServer(async (req, res) => {
     } else if (method === 'ping') {
       result = {};
     } else if (method === 'tools/list') {
-      result = { tools: [tool, ...jobs.tools] };
+      result = { tools: [tool, ...jobs.tools, ...(stateful ? await stateful.list(statefulConfig).catch(()=>[]) : []), ...(files?files.schemas:[])] };
+    } else if (method === 'tools/call' && files?.schemas.some(t=>t.name===params?.name)) {
+      try {const value=files.call(params.name,params.arguments||{});
+        result={content:[{type:'text',text:JSON.stringify(value)}]};}
+      catch(error){result={isError:true,content:[{type:'text',text:error.message}]};}
+    } else if (method === 'tools/call' && stateful?.STATEFUL.has(params?.name)) {
+      try { result = await stateful.call(statefulConfig,params.name,params.arguments||{}); }
+      catch(error){result={isError:true,content:[{type:'text',text:error.message}]};}
     } else if (method === 'tools/call' &&
                params?.name === 'terminal_exec') {
       try {

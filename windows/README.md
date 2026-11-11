@@ -1,50 +1,90 @@
-# McpGo for Windows (Preview)
+# McpGo for Windows 11 x64 — integrated test build
 
-The Windows app reuses the existing McpGo Node.js MCP services; it does not replace the macOS SwiftUI app or launchd configuration.
+This is a Windows-native McpGo shell around the **same MCP runtime** used
+by the macOS version. It is deliberately independent of WSL. macOS SwiftUI,
+launchd, Keychain and DMG logic remain untouched.
 
-## Architecture
+## Included in the installer
 
-- Electron 45 desktop shell: `app/main.cjs`, `app/preload.cjs`, and a sandboxed, context-isolated renderer.
-- Supervised services: durable terminal operations, Playwright MCP and the existing guarded browser proxy.
-- Platform bridge: `../terminal/platform.js` picks PowerShell on Windows and keeps zsh on macOS, with platform-specific data directories and process tree cancellation.
-- Two outbound-only secure tunnels: terminal to localhost:12848/exec/<private>, browser to localhost:8940/mcp. Keys are encrypted by Electron safeStorage (Windows DPAPI) and passed to tunnel-client via environment only.
-- Personal Chrome and Edge: `--extension` mode, not remote debugging of the standard browser profile.
+- Electron application with a secure renderer, system tray, startup settings
+  and service supervision with bounded reconnect delays.
+- Bundled Windows x64 Node.js 24, Python 3.12 and the full OpenAI Secure MCP
+  Tunnel client. No separate Node, Python, WSL or tunnel-client installation.
+- Interactive PowerShell over ConPTY, plus recoverable OneShot command jobs,
+  stable IDs, lock coordination, output pagination and timeouts.
+- File list/read/edit/write/search tools in the **same private terminal tunnel**.
+  Files default to the user's home directory. Edits require expected SHA256.
+- Existing Playwright MCP safe proxy with Chrome/Edge extension integration.
+  The Playwright browser extension itself must be installed in the browser.
+- Existing AutoSend scheduling and reconciliation (no blind retry after an
+  uncertain send), and SQLite agent messaging.
+- Local first-run OpenAI Platform tunnel and runtime key provisioning. Admin
+  credentials are passed via stdin to a short-lived Python process, never
+  written to settings; the runtime key is encrypted through Windows DPAPI.
 
-## Windows 11 x64 setup
+All backend HTTP listeners bind exclusively to 127.0.0.1. Two independent
+outbound Secure MCP Tunnels forward the terminal and browser MCP endpoints.
 
-1. Install the unsigned preview NSIS build. It is per-user and does not require administrator privileges.
-2. Install the `tunnel-client.exe` executable on PATH, or specify an absolute path via `MCPGO_TUNNEL_CLIENT`. This preview does not bundle the tunnel binary.
-3. Create two Secure MCP Tunnels in ChatGPT. Enter each tunnel ID and API key in the app. Do not put keys in chat, issues or scripts.
-4. Install the Playwright MCP browser extension in your regular Chrome or Edge and authorize the connection.
-5. Save settings. Check both local MCP endpoints and then exercise terminal_exec, job_status and browser_tabs from ChatGPT.
+## First-run workflow
 
-Without tunnel credentials the local services can start, but ChatGPT remote access will not connect. Listeners stay on 127.0.0.1.
+1. Run **McpGo Setup** under the Windows user account that owns the files and
+   browser profile. The installer is per-user and needs no administrator rights.
+2. Open Chrome or Edge, install and approve the official Playwright MCP Browser
+   Extension. Reuse the logged-in browser session; no isolated Chromium.
+3. In McpGo, optionally enter an OpenAI **Admin API Key** and click
+   **Create two tunnels**. A second explicit action creates an isolated
+   McpGo project and restricted Runtime Key. These API operations require the
+   appropriate organization's permissions; uncertain remote writes are
+   journaled and are NOT automatically repeated.
+4. Alternatively, manually create the two Secure MCP Tunnels and paste their
+   IDs and runtime keys into the connection form. Keys are encrypted at rest
+   with OS-backed storage.
+5. Add the two tunnels as custom MCP connections in ChatGPT (subject to account
+   and workspace permissions). Verify tool discovery and a test invocation.
+6. Create a scheduled task (initially **disabled**) from the AutoSend form.
+   Verify its URL and explicitly enable it only when ready.
 
-## Build on Windows
+Secrets remain in the owner's per-user data directory under the app's
+\`userData\`. The signed-in browser profile stays in Chrome/Edge, not McpGo.
 
-```powershell
+## Source and release engineering
+
+The principal entrypoints are:
+- \`windows/app/main.cjs\` / \`runtime.cjs\`: UI, service startup and shutdown
+- \`terminal/platform.js\`: Windows/macOS shell/path/process abstraction
+- \`terminal/pty_worker_win.js\`: Windows ConPTY worker
+- \`terminal/stateful_bridge.cjs\`: OneShot-to-interactive MCP delegation
+- \`terminal/files_tools.cjs\`: bounded filesystem tools
+- \`windows/onboarding_cli.py\`: Windows bridge to the existing Python installer
+- \`windows/prepare-runtime.py\`: verified official binary downloading
+- \`windows/verify-build.py\`: PE architecture + resource completeness audit
+
+\`\`\`powershell
 npm ci --prefix playwright --ignore-scripts
 node playwright/patch-playwright.mjs
 npm ci --prefix windows
+python windows/prepare-runtime.py
 npm test --prefix windows
-node --test terminal/tests/platform.test.cjs
+node --test terminal/tests
 npm run dist:win --prefix windows
-```
+python windows/verify-build.py
+\`\`\`
 
-The `.github/workflows/windows-preview.yml` workflow assembles an **unsigned** NSIS setup on windows-latest and uploads it as a build artifact. It does not publish a release.
+A GitHub Actions \`windows-latest\` workflow also runs native OneShot,
+ConPTY, file and embedded Python/SQLite smoke tests before archiving the
+**unsigned** NSIS installer. Builds use pinned source and cryptographically
+verified release assets.
 
-## Scope and release gates
+## Release gates
 
-| Capability | Preview |
-| --- | --- |
-| Durable PowerShell job execution, multiple agents, lock/idempotency | Ported |
-| Chrome/Edge MCP via extension + safe action proxy | Implemented, not yet validated on Windows |
-| Outbound MCP tunnels with DPAPI credential storage | Implemented |
-| System tray, autostart, process recovery | Implemented |
-| Files and SSH | PowerShell command access; no dedicated Files MCP yet |
-| Interactive ConPTY sessions | Not yet implemented |
-| Scheduled ChatGPT message sending / autosend | Not yet ported |
-| Tunnel auto-provisioning | Manual IDs and keys in this preview |
-| Signed release, auto-updater and Windows ARM64 | Not yet implemented |
+The test-build installer is assembled on macOS as a Windows PE x64 file; a
+successful cross-build and static test are not proof that the app functions
+correctly on Windows. The **native Windows CI run and real-browser interactive
+test** must both be green before calling this a stable release.
 
-Required acceptance testing before a production release: installation and removal on clean Windows 11, no admin privileges, loopback listener validation, tunnel reconnect, DPAPI persistence, Chrome/Edge real-profile extension, concurrent jobs with lock contention, Unicode paths, PowerShell command cancellation and process-tree cleanup, plus full macOS regressions.
+**No code-signing certificate is configured.** Windows SmartScreen may warn
+about the unsigned binary. Do not bypass organization security controls to
+install it. Signed production releases and securely verified auto-updates
+require an actual publisher certificate and additional release validation.
+
+Windows ARM64 is not included in this x64 release. WSL is not required.

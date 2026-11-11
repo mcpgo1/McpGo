@@ -39,3 +39,27 @@ claiming that all third-party redistribution obligations are satisfied.
 
 This file is a transparent dependency inventory, not a substitute for a
 complete, audited SBOM or upstream NOTICE audit.
+
+
+## Windows distributable runtime (verified vendor ZIPs)
+
+The Windows NSIS installer includes the following upstream executables,
+retrieved over TLS from their first-party release locations and checked
+against source release SHA-256 manifests or pinned source hashes. The
+preparation script never reads local credentials.
+
+| Component | Windows version | Upstream and terms |
+|---|---|---|
+| Node.js | v24.22.2 x64 | https://nodejs.org ; Node.js license included in vendor/node/LICENSE |
+| Python embeddable distribution | 3.12.10 x64 | https://python.org ; LICENSE.txt included with runtime |
+| OpenAI Secure MCP Tunnel client | v0.0.20 x64 (full client) | https://github.com/openai/tunnel-client ; bundled upstream LICENSE |
+| Electron | 45.3.0 | https://electronjs.org ; MIT and Chromium NOTICE files in assembled app |
+| @lydell/node-pty | 1.2.0-beta.15 | https://github.com/lydell/node-pty ; MIT, bundled LICENSE |
+| Playwright MCP | 0.0.83 | Apache-2.0, pinned in playwright/package-lock.json |
+
+The actual ZIP names and their verified SHA-256 values are recorded in
+the local ignored windows/vendor/MANIFEST.json when the build runs.
+This generated local file is not a secret.
+
+The Windows installer is presently **unsigned** and must not be presented
+as a verified stable release before native Windows CI and real-device tests.
