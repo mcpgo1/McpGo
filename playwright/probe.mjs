@@ -3,7 +3,9 @@ import {modernHeaders,modernParams,MODERN_PROTOCOL} from './mcp-modern-protocol.
 
 const base = process.env.PLAYWRIGHT_MCP_URL || 'http://127.0.0.1:8931/mcp';
 let sessionId = '';
-const external=new URL(base).port!=='8931';
+// Direct Playwright trials may use custom ports; retain legacy defaults for proxy callers.
+const mode=process.env.PLAYWRIGHT_MCP_PROBE_MODE || (new URL(base).port==='8931'?'direct':'proxy');
+const external=mode==='proxy';
 const accept = 'application/json, text/event-stream';
 const parse = text => {
   if (!text.trim()) return null;
@@ -31,6 +33,7 @@ async function send(id, method, params) {
   return parse(raw);
 }
 try {
+  if(!['direct','proxy'].includes(mode))throw Error('Invalid PLAYWRIGHT_MCP_PROBE_MODE: expected direct or proxy');
   if(external){
     const discover=await send(1,'server/discover');
     if(!discover?.result?.supportedVersions?.includes(MODERN_PROTOCOL))

@@ -500,6 +500,7 @@ class SetupEngine:
         env = os.environ.copy()
         env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = token
         env["PLAYWRIGHT_MCP_URL"] = f"http://127.0.0.1:{port}/mcp"
+        env["PLAYWRIGHT_MCP_PROBE_MODE"] = "direct"
         env["PLAYWRIGHT_MCP_VERIFY_TABS"] = "1"
         env["TMPDIR"] = str(self.root / "playwright/.cache/tmp") + "/"
         env["PWTEST_SOCKETS_DIR"] = str(self.root / "playwright/.s")

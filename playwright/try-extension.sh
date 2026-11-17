@@ -50,5 +50,5 @@ if (( READY == 0 )); then
   exit 1
 fi
 echo "Trial Playwright Extension connected on localhost:$PORT. Checking real browser tabs..."
-PLAYWRIGHT_MCP_URL="http://127.0.0.1:$PORT/mcp" PLAYWRIGHT_MCP_VERIFY_TABS=1 node "$MCP/probe.mjs"
+PLAYWRIGHT_MCP_URL="http://127.0.0.1:$PORT/mcp" PLAYWRIGHT_MCP_PROBE_MODE=direct PLAYWRIGHT_MCP_VERIFY_TABS=1 node "$MCP/probe.mjs"
 echo 'Extension smoke test passed; live McpGo backend was not changed.'

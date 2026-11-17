@@ -19,7 +19,8 @@
 | `onboarding/browser_compat.py` | 94 | `fcc6ccc254f765a7` |
 | `onboarding/cli.py` | 52 | `fdcac60add1fb847` |
 | `onboarding/runtime_provision.py` | 708 | `ecf504cc04f03dc1` |
-| `onboarding/setup_engine.py` | 906 | `ad7b66f0bd756098` |
+| `onboarding/setup_engine.py` | 907 | `f53b6dfc634cb2ec` |
+| `onboarding/test_extension_probe_mode.py` | 90 | `2b97e4fe55f15b35` |
 | `onboarding/tests/test_runtime_provision.py` | 817 | `5fddfcf6a4c022af` |
 | `onboarding/tests/test_setup_engine.py` | 377 | `e829d9413a7e23e6` |
 | `scripts/build_release_dmg.py` | 421 | `389e395c023931c1` |
@@ -78,7 +79,8 @@
 | `playwright/patch-playwright.mjs` | 89 | `65925771e4df390a` |
 | `playwright/portable-agent-tabs.mjs` | 65 | `9e7e78c66c7b5263` |
 | `playwright/portable-tab-identity.mjs` | 90 | `22e766f65cf07a58` |
-| `playwright/probe.mjs` | 80 | `84f0f0a490874a38` |
+| `playwright/probe.mjs` | 83 | `38f1e336ec52f2c6` |
+| `playwright/probe.test.mjs` | 115 | `90f8b5c04a0e8df3` |
 | `playwright/qa/inspect-direct-tab-ids.mjs` | 44 | `6db1099791c96f04` |
 | `playwright/qa/live-agent-smoke.mjs` | 128 | `3be2e0a8262a02dd` |
 | `playwright/restricted-proxy.mjs` | 878 | `360b6c226c5acfbf` |
@@ -105,7 +107,7 @@
 | `playwright/tests/portable-tab-identity.test.mjs` | 42 | `91750e2d24731a10` |
 | `playwright/tests/session-recovery.test.mjs` | 144 | `64eee54c47a09cca` |
 | `playwright/tests/tab-lease-manager.test.mjs` | 31 | `38bfc0997c631755` |
-| `playwright/try-extension.sh` | 54 | `76a8652696768b74` |
+| `playwright/try-extension.sh` | 54 | `8ee7263c90e0488e` |
 | `playwright/workspace-response.mjs` | 58 | `0e09f7b6cdcd4779` |
 | `autosend/browser-client.mjs` | 89 | `d1e7da10c8be9e45` |
 | `autosend/browser-events.mjs` | 55 | `382874b3ce39c3f7` |
@@ -193,6 +195,6 @@
 | `windows/tests/updates.test.cjs` | 36 | `669ce88d7f88ea64` |
 | `windows/verify-build.py` | 80 | `c67722da30946910` |
 
-Всего файлов в выбранном source-only срезе: **186**.
+Всего файлов в выбранном source-only срезе: **188**.
 
 Важно: отсутствие файла в этом инвентаре не доказывает отсутствие выполняемого кода где-либо на диске. Исторические или генерируемые компоненты намеренно исключены; для публичного исходного архива требуется отдельный полный аудит tree.

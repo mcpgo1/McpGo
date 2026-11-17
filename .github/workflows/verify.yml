@@ -35,6 +35,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tests -v
           python3 -m unittest discover -s onboarding/tests -v
+          python3 -m unittest discover -s onboarding -p test_extension_probe_mode.py -v
           python3 -m unittest discover -s messaging/tests -v
           python3 tools/generate_source_inventory.py --check
       - name: Node MCP regression
@@ -45,6 +46,7 @@ jobs:
           if [ ! -e "$HOME/.zshrc" ]; then printf '# McpGo CI zsh initialized\n' > "$HOME/.zshrc"; fi
           (cd autosend && node --test tests/*.test.mjs)
           node --test dashboard/tests/*.test.mjs playwright/tests/*.test.mjs
+          node --test playwright/probe.test.mjs
           node --test terminal/tests/*.test.cjs terminal/tests/*.test.mjs
           node --check terminal/interactive_runtime.cjs
           node --check terminal/stateless_server.js
