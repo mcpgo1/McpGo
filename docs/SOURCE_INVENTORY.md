@@ -18,9 +18,9 @@
 | `native/main.swift` | 842 | `fe3a68c2c8057a4b` |
 | `onboarding/browser_compat.py` | 140 | `bee9096940cbbc9d` |
 | `onboarding/cli.py` | 64 | `6cc9e7d3640abe42` |
-| `onboarding/diagnostics.py` | 296 | `9ca2ac36d8429f72` |
+| `onboarding/diagnostics.py` | 310 | `e27714238bf174e5` |
 | `onboarding/runtime_provision.py` | 719 | `e7b758ef8a42cadd` |
-| `onboarding/setup_engine.py` | 922 | `6c322c23698e6b30` |
+| `onboarding/setup_engine.py` | 925 | `56979a46ffa36c29` |
 | `onboarding/tests/test_runtime_provision.py` | 817 | `5fddfcf6a4c022af` |
 | `onboarding/tests/test_setup_engine.py` | 377 | `e829d9413a7e23e6` |
 | `scripts/build_release_dmg.py` | 421 | `dbac448579eca413` |
@@ -164,7 +164,7 @@
 | `tests/test_docs_release.py` | 66 | `e8443cd6e6add831` |
 | `tests/test_documentation.py` | 73 | `a17c225b3d5c9ac4` |
 | `tests/test_license.py` | 36 | `ae9ff572a78ee89f` |
-| `tests/test_onboarding_diagnostics.py` | 110 | `5bbe1da58ba005e2` |
+| `tests/test_onboarding_diagnostics.py` | 120 | `ddccf69da772cea9` |
 | `tests/test_onboarding_safety.py` | 103 | `c9cc4283994a09e4` |
 | `tests/test_runtime_upgrade.py` | 173 | `49ea7d92a456fb73` |
 | `tests/test_terminal_tunnel.py` | 90 | `6e5ac3655b2f81b9` |
@@ -196,7 +196,7 @@
 | `windows/tests/settings.test.cjs` | 122 | `fd68e57b4b0c2677` |
 | `windows/tests/supervisor.test.cjs` | 49 | `d389a79a607f9478` |
 | `windows/tests/updates.test.cjs` | 36 | `669ce88d7f88ea64` |
-| `windows/verify-build.py` | 80 | `c67722da30946910` |
+| `windows/verify-build.py` | 84 | `c970c207579d0129` |
 
 Всего файлов в выбранном source-only срезе: **191**.
 
