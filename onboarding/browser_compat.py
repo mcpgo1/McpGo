@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import subprocess
 import sys
 
 BACKGROUND_MINIMUM = (158, 0, 8127, 2)
@@ -31,14 +32,30 @@ def compatible_version(raw: str | None) -> bool:
     return parsed is not None and (*parsed, *(0 for _ in range(4 - len(parsed)))) >= BACKGROUND_MINIMUM
 
 
+def _spotlight_chrome_paths() -> list[Path]:
+    """Find Chrome outside default app directories without starting the browser."""
+    try:
+        result = subprocess.run(
+            ["/usr/bin/mdfind", 'kMDItemCFBundleIdentifier == "com.google.Chrome"'],
+            capture_output=True, text=True, timeout=3, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if result.returncode != 0:
+        return []
+    return [Path(line) for line in result.stdout.splitlines() if line.endswith(".app")]
+
+
 def mac_chrome_version(home: Path | None = None, paths: list[Path] | None = None) -> str | None:
-    """Read the installed *Google Chrome* app bundle, not Chromium or the system browser."""
+    """Read genuine Google Chrome bundles, including nonstandard Spotlight locations."""
     home = home or Path.home()
     candidates = paths if paths is not None else [
         Path("/Applications/Google Chrome.app"),
         home / "Applications/Google Chrome.app",
+        *_spotlight_chrome_paths(),
     ]
-    for app in candidates:
+    newest: str | None = None
+    for app in dict.fromkeys(candidates):
         info = app / "Contents/Info.plist"
         try:
             with info.open("rb") as stream:
@@ -46,11 +63,40 @@ def mac_chrome_version(home: Path | None = None, paths: list[Path] | None = None
             if metadata.get("CFBundleIdentifier") != "com.google.Chrome":
                 continue
             version = metadata.get("CFBundleShortVersionString")
-            if version_tuple(version) is not None:
-                return version
+            if version_tuple(version) is not None and (
+                newest is None or version_tuple(version) > version_tuple(newest)
+            ):
+                newest = version
         except (OSError, ValueError, TypeError, plistlib.InvalidFileException):
             continue
-    return None
+    return newest
+
+
+PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
+
+
+def mac_extension_profile(home: Path | None = None) -> str | None:
+    """Match the running launcher: select the unique profile with Playwright Extension.
+
+    Inspect only extension installation directories, never cookies or browsing data.
+    Ambiguous installations require explicit chrome-profile configuration.
+    """
+    root = (home or Path.home()) / "Library/Application Support/Google/Chrome"
+    try:
+        candidates = root.iterdir()
+        matches = []
+        for profile in candidates:
+            if not re.fullmatch(r"(?:Default|Profile \d+)", profile.name) or not profile.is_dir():
+                continue
+            ext = profile / "Extensions" / PLAYWRIGHT_EXTENSION_ID
+            if not ext.is_dir() or ext.is_symlink():
+                continue
+            if any(child.is_dir() and re.match(r"^\d+\.\d+", child.name)
+                   for child in ext.iterdir()):
+                matches.append(profile.name)
+        return matches[0] if len(matches) == 1 else None
+    except OSError:
+        return None
 
 
 def windows_browser_version(browser: str) -> str | None:

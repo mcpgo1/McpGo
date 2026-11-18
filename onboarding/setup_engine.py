@@ -19,7 +19,8 @@ import sys
 import tempfile
 import time
 from typing import Any
-from browser_compat import browser_check
+from browser_compat import browser_check, mac_extension_profile
+from diagnostics import event, run_logged, register_secrets, instrument_public_methods, urlopen_logged
 
 ROOT = Path(__file__).resolve().parents[1]
 TUNNEL_ID = re.compile(r"^tunnel_[A-Za-z0-9_-]{3,180}$")
@@ -142,6 +143,7 @@ class SetupEngine:
 
     def run_cli(self, args: list[str], *, admin: str | None = None, runtime: str | None = None,
                 timeout: int = 20) -> str:
+        register_secrets({"adminKey": admin, "runtimeKey": runtime})
         if not Path(self.client).is_file():
             raise SetupError("Не установлен tunnel-client.")
         env = os.environ.copy()
@@ -152,7 +154,7 @@ class SetupEngine:
         if runtime:
             env["CONTROL_PLANE_API_KEY"] = runtime
         try:
-            proc = subprocess.run([self.client, *args], capture_output=True, text=True,
+            proc = run_logged([self.client, *args], capture_output=True, text=True,
                                   env=env, timeout=timeout, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise SetupError("Вызов tunnel-client не завершился; проверьте подключение и права.") from None
@@ -329,7 +331,7 @@ class SetupEngine:
         script = self.root / "scripts/setup_macos.py"
         if not script.is_file():
             raise SetupError("Не найден установщик служб McpGo.")
-        result = subprocess.run([sys.executable, str(script), "--check"],
+        result = run_logged([sys.executable, str(script), "--check"],
                                 capture_output=True, text=True, timeout=15)
         if result.returncode:
             raise SetupError("Конфликт: другая локальная установка или занят порт. "
@@ -346,7 +348,7 @@ class SetupEngine:
         if not npm:
             raise SetupError("Сначала установите Node.js/npm.")
         try:
-            result = subprocess.run([npm, "ci"], cwd=folder, capture_output=True,
+            result = run_logged([npm, "ci"], cwd=folder, capture_output=True,
                                     text=True, timeout=240)
         except (OSError, subprocess.TimeoutExpired):
             raise SetupError("npm ci не завершился. Повторите после проверки подключения.") from None
@@ -436,7 +438,7 @@ class SetupEngine:
         script = self.root / "scripts/setup_macos.py"
         for mode in ("--check", "--install"):
             try:
-                result = subprocess.run([sys.executable, str(script), mode],
+                result = run_logged([sys.executable, str(script), mode],
                                         capture_output=True, text=True, timeout=35)
             except (OSError, subprocess.TimeoutExpired):
                 raise SetupError("Установка служб не завершилась, проверьте launchd.") from None
@@ -501,17 +503,26 @@ class SetupEngine:
         env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"] = token
         env["PLAYWRIGHT_MCP_URL"] = f"http://127.0.0.1:{port}/mcp"
         env["PLAYWRIGHT_MCP_VERIFY_TABS"] = "1"
+        # Port 8999 is a private Playwright MCP, not the public modern proxy.
+        # Force the 2025-era initialize handshake for its browser-tabs probe.
+        env["PLAYWRIGHT_MCP_PRIVATE_BACKEND"] = "1"
         env["TMPDIR"] = str(self.root / "playwright/.cache/tmp") + "/"
         env["PWTEST_SOCKETS_DIR"] = str(self.root / "playwright/.s")
         trial_args = [str(node), str(cli), "--host", "127.0.0.1", "--port", str(port),
                       "--extension", "--background", "--caps", "vision,devtools",
                       "--block-service-workers", "--no-webmcp"]
-        # Prefer the profile with extension installed, set explicitly only if configured.
+        # Use the same automatic profile selection as the normal Browser MCP
+        # launcher. Otherwise the trial can check Default while the user's
+        # Playwright Extension lives in Profile N, causing a false failure.
         profile = self.appdata / "playwright/chrome-profile"
+        explicit = ""
         if profile.exists() and not profile.is_symlink():
             value = profile.read_text("utf-8").strip()
             if value and re.fullmatch(r"[A-Za-z0-9 _.-]{1,100}", value) and value not in (".", ".."):
-                trial_args += ["--profile-dir-name", value]
+                explicit = value
+        selected_profile = explicit or mac_extension_profile(self.home)
+        if selected_profile:
+            trial_args += ["--profile-dir-name", selected_profile]
         trial = None
         try:
             trial = subprocess.Popen(trial_args, cwd=str(self.root / "playwright"),
@@ -529,7 +540,7 @@ class SetupEngine:
                     time.sleep(.15)
             if not ready:
                 raise SetupError("Тестовый Playwright Extension не запустился. Работающий браузер не переключался.")
-            test = subprocess.run([str(node), str(probe)], env=env, cwd=str(self.root),
+            test = run_logged([str(node), str(probe)], env=env, cwd=str(self.root),
                                   capture_output=True, timeout=75, check=False)
             if test.returncode != 0:
                 raise SetupError("Расширение не подтвердило доступ к Chrome. Проверьте токен и профиль; Работающий браузер не переключался.")
@@ -557,13 +568,13 @@ class SetupEngine:
         def extension_process_active():
             """Ensure this port belongs to the official Extension backend."""
             try:
-                listener = subprocess.run(
+                listener = run_logged(
                     ["/usr/sbin/lsof", "-t", "-nP", "-iTCP:8931", "-sTCP:LISTEN"],
                     capture_output=True, timeout=3, check=False)
                 for pid in listener.stdout.decode("ascii", "ignore").splitlines():
                     if not pid.isdecimal():
                         continue
-                    command = subprocess.run(
+                    command = run_logged(
                         ["/bin/ps", "-p", pid, "-o", "command="],
                         capture_output=True, timeout=3, check=False)
                     line = command.stdout.decode("utf-8", "replace")
@@ -575,7 +586,7 @@ class SetupEngine:
                 pass
             return False
         def kickstart():
-            return subprocess.run(["/bin/launchctl", "kickstart", "-k", label],
+            return run_logged(["/bin/launchctl", "kickstart", "-k", label],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                   timeout=15, check=False).returncode == 0
         try:
@@ -589,7 +600,7 @@ class SetupEngine:
             verified = False
             for _ in range(20):
                 try:
-                    check = subprocess.run([str(node), str(probe)],
+                    check = run_logged([str(node), str(probe)],
                                            env=final_env, cwd=str(self.root),
                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                            timeout=7, check=False)
@@ -689,7 +700,7 @@ class SetupEngine:
             raise SetupError("Сначала установите локальные службы.")
         base = "http://127.0.0.1:8969"
         try:
-            with urllib.request.urlopen(base + "/api/status", timeout=4) as res:
+            with urlopen_logged(base + "/api/status", timeout=4) as res:
                 status = json.loads(res.read(32768))
             if Path(status.get("installationRoot", "")).resolve() != self.root:
                 raise SetupError("Dashboard принадлежит другой установке McpGo.")
@@ -701,8 +712,9 @@ class SetupEngine:
                          "Content-Type": "application/json"})
             # Browser startup can include CDP consent and MCP health checks.
             # Do not report a client-side timeout as if services definitely failed.
-            with urllib.request.urlopen(req, timeout=180) as res:
+            with urlopen_logged(req, timeout=180) as res:
                 outcome = json.loads(res.read(32768))
+            event("dashboard.start.response", group=group, outcome=outcome)
             if not outcome.get("ok"):
                 raise SetupError("Службы не прошли проверку готовности; проверь Dashboard.")
             return {"started": group, "ready": True}
@@ -753,13 +765,15 @@ class SetupEngine:
         }
         for name, (profile, secret_service) in services.items():
             try:
-                password = subprocess.run(
+                password = run_logged(
                     ["/usr/bin/security", "find-generic-password",
                      "-a", username, "-s", secret_service, "-w"],
-                    capture_output=True, text=True, timeout=5)
+                    capture_output=True, text=True, timeout=5,
+                    diagnostic_secret_output=True)
                 if password.returncode:
                     results[name] = {"ready": False, "reason": "runtime key not in Keychain"}
                     continue
+                register_secrets({"runtimeKey": password.stdout.strip()})
                 self.run_cli(["doctor", "--profile", profile, "--explain", "--json"],
                              runtime=password.stdout.strip(),
                              timeout=25)
@@ -787,7 +801,7 @@ class SetupEngine:
         hub = None
         for attempt in range(2):
             try:
-                with urllib.request.urlopen(req, timeout=6) as response:
+                with urlopen_logged(req, timeout=6) as response:
                     hub = json.loads(response.read(16384))
                 break
             except (OSError, ValueError, KeyError):
@@ -855,7 +869,7 @@ class SetupEngine:
             data = json.dumps(packet).encode()
             req = urllib.request.Request(url, data=data, method="POST", headers=headers)
             timeout_seconds = 15 if verify_browser and method == "tools/call" else (6 if verify_browser else 4)
-            with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            with urlopen_logged(req, timeout=timeout_seconds) as resp:
                 contents = resp.read(1048576).decode("utf-8", errors="replace")
                 if contents.startswith("{"):
                     result = json.loads(contents)
@@ -865,6 +879,8 @@ class SetupEngine:
                         if line.startswith("data: "):
                             result = json.loads(line[6:])
                             break
+                event("mcp.handshake.response", method=method, requestId=request_id,
+                      protocolVersion=version, response=result, bytes=len(contents))
                 if not result or result.get("result", {}).get("resultType") != "complete":
                     raise ValueError("MCP 2026 response absent or malformed")
                 return result
@@ -904,3 +920,6 @@ class SetupEngine:
         state["wizardDismissed"] = True
         self.write_state(state)
         return {"dismissed": True, "chatgptVerified": False}
+
+# Every public engine transition appears in the shared onboarding timeline.
+instrument_public_methods(SetupEngine)

@@ -95,6 +95,35 @@ class BrowserExtensionSetupTests(unittest.TestCase):
         self.assertEqual(popen.call_args.kwargs["env"]["PLAYWRIGHT_MCP_EXTENSION_TOKEN"], self.token)
         self.assertTrue(any(args[0] == "/bin/launchctl" for args in commands))
 
+
+    def test_trial_uses_same_auto_detected_profile_as_live_browser(self):
+        ext = (self.home / "Library/Application Support/Google/Chrome/Profile 3"
+               / "Extensions/mmlmfjhmonkocbjadbfplnigmagldckm/0.5.2_0")
+        ext.mkdir(parents=True)
+        trial = FakeTrial()
+        from contextlib import nullcontext
+
+        def run(args, **kwargs):
+            if args[0] == "/usr/sbin/lsof":
+                return types.SimpleNamespace(returncode=0, stdout=b"11223\n")
+            if args[0] == "/bin/ps":
+                return types.SimpleNamespace(returncode=0,
+                    stdout=b"node /Runtime/playwright/node_modules/@playwright/mcp/cli.js --extension --background\n")
+            return types.SimpleNamespace(returncode=0)
+
+        with patch("setup_engine.sys.platform", "darwin"), \
+             patch("setup_engine.socket.create_connection", side_effect=[
+                 ConnectionRefusedError(), nullcontext()
+             ]), \
+             patch("setup_engine.subprocess.Popen", return_value=trial) as popen, \
+             patch("setup_engine.subprocess.run", side_effect=run):
+            result = self.engine.activate_browser_extension({
+                "confirmed": True, "token": self.token
+            })
+        self.assertTrue(result["verified"])
+        args = popen.call_args.args[0]
+        self.assertEqual(args[args.index("--profile-dir-name") + 1], "Profile 3")
+
     def test_bad_live_handshake_rolls_back_old_mode(self):
         from contextlib import nullcontext
         trial = FakeTrial()

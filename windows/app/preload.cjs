@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('mcpgo',Object.freeze({
  serviceRead:(service,route)=>ipcRenderer.invoke('mcpgo:service-read',service,route),
  serviceAction:(service,route,body)=>ipcRenderer.invoke('mcpgo:service-action',service,route,body),
  onboard:(action,payload)=>ipcRenderer.invoke('mcpgo:onboard',action,payload),
+ exportDiagnostics:()=>ipcRenderer.invoke('mcpgo:export-diagnostics'),
  onStatus:callback=>{
   if(typeof callback!=='function')return;
   const listener=(_event,data)=>callback(data);

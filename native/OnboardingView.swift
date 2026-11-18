@@ -1,6 +1,57 @@
 import AppKit
 import SwiftUI
 import Foundation
+import Darwin
+import UniformTypeIdentifiers
+
+/// Minimal native event writer. Secrets and subprocess payloads stay in Python;
+/// this layer records navigation, process lifecycle and failure boundaries only.
+enum OnboardingDiagnostics {
+    static let folder = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/McpGo/Onboarding/Logs")
+    private static let queue = DispatchQueue(label: "ru.mcpgo.onboarding.diagnostics")
+
+    static func record(_ name: String, _ details: [String: Any] = [:]) {
+        queue.sync {
+            let fm = FileManager.default
+            do {
+                try fm.createDirectory(at: folder, withIntermediateDirectories: true,
+                                       attributes: [.posixPermissions: 0o700])
+                let sessionURL = folder.appendingPathComponent("attempt.id")
+                if !fm.fileExists(atPath: sessionURL.path) {
+                    let handle = Darwin.open(sessionURL.path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0o600)
+                    if handle >= 0 {
+                        let value = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+                        let bytes = Array(value.utf8)
+                        _ = bytes.withUnsafeBytes { Darwin.write(handle, $0.baseAddress, bytes.count) }
+                        _ = Darwin.fsync(handle)
+                        _ = Darwin.close(handle)
+                    }
+                }
+                let attempt = (try? String(contentsOf: sessionURL, encoding: .ascii))
+                    .map { String($0.prefix(32)) } ?? "unknown"
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                let row: [String: Any] = [
+                    "time": formatter.string(from: Date()),
+                    "attempt": attempt, "pid": ProcessInfo.processInfo.processIdentifier,
+                    "platform": "darwin", "event": name, "details": details
+                ]
+                let payload = try JSONSerialization.data(withJSONObject: row)
+                let logPath = folder.appendingPathComponent("onboarding.log").path
+                let descriptor = Darwin.open(logPath, O_CREAT | O_WRONLY | O_APPEND | O_NOFOLLOW, 0o600)
+                guard descriptor >= 0 else { return }
+                defer { _ = Darwin.close(descriptor) }
+                var line = payload
+                line.append(0x0A)
+                _ = line.withUnsafeBytes { Darwin.write(descriptor, $0.baseAddress, line.count) }
+                _ = Darwin.fsync(descriptor)
+            } catch {
+                // Diagnostic failure must never block onboarding.
+            }
+        }
+    }
+}
 
 /// The wizard talks to a local Python setup engine over stdin/stdout.
 /// Admin credentials travel only in stdin, never in process args or saved state.
@@ -12,6 +63,9 @@ private enum WizardBridge {
     static func perform(_ action: String, _ data: [String: Any] = [:]) async throws -> [String: Any] {
         let root = McpGoPaths.root
         let payload = try JSONSerialization.data(withJSONObject: data)
+        OnboardingDiagnostics.record("mac.wizard.action.requested", [
+            "action": action, "payloadFields": Array(data.keys).sorted(), "payloadBytes": payload.count
+        ])
         return try await withCheckedThrowingContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let p = Process()
@@ -33,17 +87,27 @@ private enum WizardBridge {
                 p.standardOutput = output
                 p.standardError = errors
                 do {
+                    OnboardingDiagnostics.record("mac.wizard.process.start", [
+                        "action": action, "executable": executable, "root": root
+                    ])
                     try p.run()
                     input.fileHandleForWriting.write(payload)
                     try? input.fileHandleForWriting.close()
                     let bytes = output.fileHandleForReading.readDataToEndOfFile()
                     p.waitUntilExit()
+                    OnboardingDiagnostics.record("mac.wizard.process.exit", [
+                        "action": action, "exitCode": p.terminationStatus, "stdoutBytes": bytes.count
+                    ])
                     let answer = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] ?? [:]
                     if (answer["ok"] as? Bool) != true {
                         throw Failure.failed(answer["error"] as? String ?? "Настройка не выполнена.")
                     }
+                    OnboardingDiagnostics.record("mac.wizard.action.success", ["action": action])
                     continuation.resume(returning: answer["result"] as? [String:Any] ?? [:])
                 } catch {
+                    OnboardingDiagnostics.record("mac.wizard.action.failure", [
+                        "action": action, "failureType": String(describing: type(of: error))
+                    ])
                     // Never relay raw stderr from subprocesses: it may include user input.
                     continuation.resume(throwing: Failure.failed(
                         "Мастер не смог выполнить действие: " + error.localizedDescription))
@@ -80,6 +144,7 @@ private enum WizardBridge {
     private var restoredPage = false
 
     func navigate(to target: Int) {
+        OnboardingDiagnostics.record("mac.wizard.navigation", ["from": page, "to": target])
         page = max(0, min(6, target))
         note = ""
         error = ""
@@ -93,6 +158,9 @@ private enum WizardBridge {
             browserCompatibility = data["browserCompatibility"] as? [String:Any] ?? [:]
             browserMode = data["browserMode"] as? String ?? "not-configured"
             phase = data["phase"] as? String ?? "preflight"
+            OnboardingDiagnostics.record("mac.wizard.status", [
+                "phase": phase, "checksCount": checks.count
+            ])
             if !restoredPage {
                 restoredPage = true
                 page = ["preflight":0, "authorization":1, "tunnels":2,
@@ -119,6 +187,9 @@ private enum WizardBridge {
         }
     }
     func perform(_ action: String, data: [String:Any] = [:], onSuccess: Int? = nil) async {
+        OnboardingDiagnostics.record("mac.wizard.ui.action", [
+            "action": action, "page": page, "busy": busy
+        ])
         guard !busy else { return }
         busy = true
         note = ""
@@ -264,6 +335,9 @@ struct OnboardingView: View {
                             .foregroundStyle(Palette.muted)
                     }
                     Spacer()
+                    Button { exportDiagnostics() } label: {
+                        Label("Экспорт диагностики", systemImage:"square.and.arrow.up")
+                    }.buttonStyle(HubInteractiveButtonStyle())
                     Button { Task { await model.refresh() } } label: {
                         Label("Обновить",systemImage:"arrow.clockwise")
                     }.buttonStyle(HubInteractiveButtonStyle())
@@ -314,7 +388,30 @@ struct OnboardingView: View {
             .padding(28)
         }
         .background(Palette.background)
-        .task { await model.refresh() }
+        .task {
+            OnboardingDiagnostics.record("mac.wizard.visible")
+            await model.refresh()
+        }
+    }
+
+    private func exportDiagnostics() {
+        OnboardingDiagnostics.record("mac.wizard.export.clicked")
+        let panel = NSSavePanel()
+        panel.title = "Экспорт диагностики первого подключения"
+        panel.allowedContentTypes = [.zip]
+        panel.nameFieldStringValue = "mcpgo-onboarding-diagnostics-" +
+            String(ISO8601DateFormatter().string(from: Date()).prefix(10)) + ".zip"
+        guard panel.runModal() == .OK, let location = panel.url else { return }
+        Task {
+            do {
+                let result = try await WizardBridge.perform("export-diagnostics",
+                    ["destination": location.path])
+                model.note = "Диагностика сохранена: " +
+                    (result["fileName"] as? String ?? location.lastPathComponent)
+            } catch {
+                model.error = "Ошибка экспорта диагностики: " + error.localizedDescription
+            }
+        }
     }
 
     @State private var showPreflightDetails = false
@@ -359,27 +456,30 @@ struct OnboardingView: View {
         VStack(alignment:.leading,spacing:8) {
             let ready = model.browserCompatibility["backgroundReady"] as? Bool == true
             let version = model.browserCompatibility["version"] as? String
-            Label(ready ? "Chrome готов для фоновой работы" : "Проверь версию Google Chrome",
+            Label(ready ? "Chrome готов для фоновой работы"
+                  : (version == nil ? "Не удалось определить Chrome" : "Фоновая работа Chrome ограничена"),
                   systemImage:ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size:13,weight:.semibold))
                 .foregroundStyle(ready ? Palette.online : Palette.warning)
             Text(ready
                  ? "Найден Chrome \(version ?? ""). Полностью фоновое подключение Playwright поддерживается."
                  : (version == nil
-                    ? "Версию Google Chrome определить не удалось. Для фонового подключения нужен Chrome 158.0.8127.2 или новее."
-                    : "Найден Chrome \(version!). Для фонового подключения без переключения окон нужен Chrome 158.0.8127.2 или новее."))
+                    ? "Не удалось определить версию установленного Google Chrome. Это не означает, что браузер устарел. McpGo проверил стандартные папки и системный индекс macOS."
+                    : "Найден Chrome \(version!). Для дополнительного фонового режима без переключения окон нужен Chrome 158.0.8127.2 или новее. Ваша версия может быть последней доступной стабильной."))
                 .font(.system(size:12))
                 .foregroundStyle(Palette.muted)
                 .fixedSize(horizontal:false,vertical:true)
             if !ready {
-                Text("Старый Chrome не блокирует установку McpGo. Расширение Playwright может работать, но окно Chrome иногда будет получать фокус.")
+                Text(version == nil
+                     ? "Chrome необязателен для первого подключения. Если он установлен, можно продолжить настройку; позже проверить путь установки и повторить проверку."
+                     : "Версия ниже порога дополнительного фонового режима не блокирует McpGo. Playwright Extension может работать, но иногда Chrome будет получать фокус.")
                     .font(.system(size:11))
                     .foregroundStyle(Palette.muted)
                     .fixedSize(horizontal:false,vertical:true)
             }
             HStack(spacing:10) {
                 if !ready {
-                    Button("Скачать или обновить Chrome") {
+                    Button("Официальный сайт Chrome") {
                         if let url = URL(string:"https://www.google.com/chrome/") {
                             NSWorkspace.shared.open(url)
                         }

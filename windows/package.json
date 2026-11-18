@@ -132,6 +132,7 @@
       "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
+      "include": "assets/onboarding-installer.nsh",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": false,

@@ -23,7 +23,7 @@ FILES = (
     "terminal/platform.js",
     "terminal/mcp-version.json", "terminal/run-tunnel.sh",
     "launchers/tunnel.mjs", "launchers/browser.mjs", "playwright/browser-session-manager.mjs", "playwright/chrome-profile.mjs", "playwright/tab-lease-manager.mjs", "playwright/agent-scope.mjs", "playwright/portable-tab-identity.mjs", "playwright/portable-agent-tabs.mjs", "playwright/browser-workspace.mjs", "playwright/workspace-response.mjs", "playwright/mcp-modern-protocol.mjs", "playwright/chatgpt-url.mjs", "playwright/restricted-proxy.mjs",
-    "onboarding/browser_compat.py", "onboarding/setup_engine.py", "onboarding/cli.py", "onboarding/runtime_provision.py",
+    "onboarding/browser_compat.py", "onboarding/setup_engine.py", "onboarding/cli.py", "onboarding/runtime_provision.py", "onboarding/diagnostics.py",
     # Sync AutoSend source without touching schedules, state or browser profiles.
     "autosend/server.mjs", "autosend/core.mjs",
     "autosend/delivery.mjs", "autosend/browser-client.mjs", "autosend/browser-health.mjs", "autosend/preview-check.mjs", "autosend/schedule.mjs", "autosend/smart-continuation.mjs", "autosend/chat-state.mjs",

@@ -146,6 +146,18 @@ else
   exit 5
 fi
 
+# The shared logger must be present before the CLI imports it.
+LOGGER_SRC="$ROOT/onboarding/diagnostics.py"
+LOGGER_DEST="$RUNTIME/onboarding/diagnostics.py"
+if [[ -L "$LOGGER_DEST" || -L "$RUNTIME/onboarding" ]]; then
+  print -u2 "[dev] Unsafe diagnostics module destination."
+  exit 5
+fi
+if [[ ! -f "$LOGGER_DEST" ]] || ! cmp -s "$LOGGER_SRC" "$LOGGER_DEST"; then
+  cp -p "$LOGGER_SRC" "$LOGGER_DEST"
+  echo "[dev] Synced shared onboarding diagnostics."
+fi
+
 # Keep opt-in runtime provisioning module in the writable test runtime.
 # Copy source code ONLY, never settings, tokens or user data.
 MODULE_SRC="$ROOT/onboarding/runtime_provision.py"

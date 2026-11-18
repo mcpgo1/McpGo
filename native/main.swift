@@ -8,10 +8,14 @@ enum McpGoPaths {
     /// Local developer bundles without RuntimeSeed keep their original source root.
     static let root: String = {
         let sourceRoot = Bundle.main.bundleURL.deletingLastPathComponent().standardizedFileURL.path
+        OnboardingDiagnostics.record("mac.runtime.prepare.requested", ["sourceRoot": sourceRoot])
         guard let seed = Bundle.main.resourceURL?.appendingPathComponent("RuntimeSeed", isDirectory: true),
               FileManager.default.fileExists(atPath: seed.appendingPathComponent("onboarding/cli.py").path),
               FileManager.default.fileExists(atPath: seed.appendingPathComponent("release-manifest.json").path)
-        else { return sourceRoot }
+        else {
+            OnboardingDiagnostics.record("mac.runtime.prepare.developmentMode")
+            return sourceRoot
+        }
 
         let fm = FileManager.default
         let support = userHome.appendingPathComponent("Library/Application Support/McpGo", isDirectory: true)
@@ -33,14 +37,23 @@ enum McpGoPaths {
             operation.arguments = [helper.path, seed.path, support.path]
             operation.standardOutput = FileHandle.nullDevice
             operation.standardError = FileHandle.nullDevice
+            OnboardingDiagnostics.record("mac.runtime.upgrader.spawn", [
+                "helper": helper.path, "python": python.path
+            ])
             try operation.run()
             operation.waitUntilExit()
+            OnboardingDiagnostics.record("mac.runtime.upgrader.exit", [
+                "exitCode": operation.terminationStatus
+            ])
             if operation.terminationStatus != 0 {
                 // The helper restores the previous runtime after an aborted
                 // switch. A failed upgrade never reruns first-time onboarding.
                 NSLog("McpGo runtime upgrade failed; previous installation retained")
             }
         } catch {
+            OnboardingDiagnostics.record("mac.runtime.prepare.failure", [
+                "errorType": String(describing: type(of: error))
+            ])
             NSLog("McpGo runtime preparation failed: %@", error.localizedDescription)
         }
         return installed.standardizedFileURL.path

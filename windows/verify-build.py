@@ -23,6 +23,7 @@ def check_pe(file:pathlib.Path,allowed_archs=(0x8664,))->None:
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument("--directory",default=str(ROOT/"release/windows/win-unpacked"))
+    parser.add_argument("--installer",default="")
     args=parser.parse_args()
     base=pathlib.Path(args.directory)
     runtime=base/"resources/mcpgo-runtime"
@@ -33,7 +34,7 @@ def main():
         "autosend":["server.mjs","delivery.mjs","browser-client.mjs","preview-check.mjs","browser-health.mjs","schedule.mjs","smart-continuation.mjs","core.mjs","conversation-fsm.mjs",
                     "reconciliation.mjs","guarded-send.mjs","chat-state.mjs","browser-events.mjs","stream-monitor.mjs"],
         "messaging":["hub.py"],
-        "onboarding":["setup_engine.py","runtime_provision.py","cli.py","browser_compat.py"],
+        "onboarding":["setup_engine.py","runtime_provision.py","cli.py","browser_compat.py","diagnostics.py"],
         "playwright":["restricted-proxy.mjs","action-guard.mjs","browser-session-manager.mjs",
                       "tab-lease-manager.mjs","agent-scope.mjs","portable-tab-identity.mjs",
                       "portable-agent-tabs.mjs","browser-workspace.mjs","workspace-response.mjs","mcp-modern-protocol.mjs","chatgpt-url.mjs",
@@ -64,7 +65,10 @@ def main():
     version=json.loads((ROOT/"windows/package.json").read_text(encoding="utf-8"))["version"]
     if not re.fullmatch(r"\d+\.\d+\.\d+-preview\.\d+", version):
         raise RuntimeError("Invalid Windows preview version")
-    installer=ROOT/"release/windows"/f"McpGo Setup {version}.exe"
+    installer=(pathlib.Path(args.installer) if args.installer else
+               ROOT/"release/windows"/f"McpGo Setup {version}.exe")
+    if installer.name!=f"McpGo Setup {version}.exe":
+        raise RuntimeError("Unexpected Windows installer name")
     if not installer.is_file() or installer.is_symlink():
         raise RuntimeError("Expected Windows NSIS installer missing: "+str(installer))
     # NSIS bootstrapper uses PE32/i386; installed executables are PE32+ x64.

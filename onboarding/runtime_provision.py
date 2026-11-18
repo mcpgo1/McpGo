@@ -136,13 +136,19 @@ class RuntimeAdminAPI:
                      "Accept": "application/json", "Content-Type": "application/json"},
         )
         try:
-            with urllib.request.urlopen(request, timeout=22) as response:
-                # Numeric HTTP status only; no headers, request identifiers,
-                # response values or secrets are persisted to diagnostics.
+            with urlopen_logged(request, timeout=22) as response:
+                # The diagnostics layer stores selected request metadata and
+                # redacted response details, never authorization credentials.
                 self.last_http_status = getattr(response, "status", None)
                 body = response.read(131073)
         except urllib.error.HTTPError as exc:
-            # Provider messages may echo input; never surface raw response bodies.
+            # Keep the real provider rejection for local troubleshooting, but
+            # mask credentials before persistence and never echo it to the UI.
+            from diagnostics import event
+            error_body = exc.read(65537)
+            event("admin.http.error.response", method=method, endpoint=path,
+                  status=exc.code, body=error_body[:65536],
+                  bodyTruncated=len(error_body)>65536)
             if exc.code in (400, 401, 403, 404, 409, 422):
                 raise KnownRejection("OpenAI отклонил запрос (" + str(exc.code) +
                                      "). Проверь права администратора, проект и политику организации.") from None
@@ -706,3 +712,8 @@ class RuntimeAutoProvisioner:
         self.saved(state,journal)
         return {"runtimeKey":value, "projectName":name,
                 "message":"Ключ выдан для отдельного Service Account; сохраните в Keychain."}
+
+# Audit each remote admin operation, including status and sanitized response shape.
+from diagnostics import instrument_public_methods, urlopen_logged
+instrument_public_methods(RuntimeAdminAPI)
+instrument_public_methods(RuntimeAutoProvisioner)

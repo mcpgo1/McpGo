@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from setup_engine import SetupEngine, SetupError
+from diagnostics import event, register_secrets, log_exception, environment_snapshot, export_zip
 
 ACTIONS = {
     'status': lambda e,d: e.status_without_secrets(),
@@ -28,9 +29,13 @@ ACTIONS = {
     'start-local': lambda e,d: e.start_local(d),
     'chatgpt-instructions': lambda e,d: e.note_chatgpt(d),
     'dismiss': lambda e,d: e.dismiss(d),
+    'export-diagnostics': lambda e,d: export_zip(d.get('destination', '')),
 }
 
 def main() -> int:
+    environment_snapshot()
+    action = sys.argv[1] if len(sys.argv) > 1 else '<missing>'
+    event('cli.invoked', action=action, argc=len(sys.argv))
     try:
         if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
             raise SetupError('Неизвестное действие мастера.')
@@ -40,12 +45,19 @@ def main() -> int:
         payload = json.loads(raw) if raw else {}
         if not isinstance(payload, dict):
             raise SetupError('Ожидается JSON-объект.')
+        register_secrets(payload)
+        event('cli.request', action=action, payload=payload, bytes=len(raw))
         result = ACTIONS[sys.argv[1]](SetupEngine(), payload)
+        event('cli.success', action=action, result=result)
         print(json.dumps({'ok': True, 'result': result}, ensure_ascii=False))
         return 0
     except (SetupError, ValueError, OSError) as exc:
-        # The engine never embeds a key in its human-facing exception messages.
+        log_exception('cli.failure:' + action, exc)
         print(json.dumps({'ok': False, 'error': str(exc)}, ensure_ascii=False))
+        return 2
+    except Exception as exc:
+        log_exception('cli.unexpected:' + action, exc)
+        print(json.dumps({'ok': False, 'error': 'Внутренняя ошибка мастера (подробности в диагностике).'}, ensure_ascii=False))
         return 2
 
 if __name__ == '__main__':

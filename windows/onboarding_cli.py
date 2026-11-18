@@ -24,10 +24,11 @@ ROOT=pathlib.Path(os.environ.get("MCPGO_RESOURCE_ROOT",
 sys.path.insert(0,str(ROOT/"onboarding"))
 from setup_engine import SetupEngine,SetupError
 from browser_compat import browser_check
+from diagnostics import event, register_secrets, log_exception, environment_snapshot, export_zip, instrument_public_methods
 
 ACTIONS={"status","browser-check","discover","provision","import","runtime-projects",
          "runtime-inspect","runtime-auto","runtime-recover-key",
-         "verify-remote","doctor"}
+         "verify-remote","doctor","export-diagnostics"}
 
 class WindowsSetup(SetupEngine):
     def __init__(self):
@@ -73,7 +74,12 @@ class WindowsSetup(SetupEngine):
         finally:
             if os.path.exists(tmp):os.unlink(tmp)
 
+instrument_public_methods(WindowsSetup)
+
 def main():
+    environment_snapshot()
+    action=sys.argv[1] if len(sys.argv)>1 else '<missing>'
+    event('windows.cli.invoked',action=action)
     try:
         if len(sys.argv)!=2 or sys.argv[1] not in ACTIONS:
             raise SetupError("Unsupported onboarding action.")
@@ -81,6 +87,8 @@ def main():
         if len(data)>16384:raise SetupError("Request too large.")
         payload=json.loads(data or b"{}")
         if not isinstance(payload,dict):raise SetupError("Expected a JSON object.")
+        register_secrets(payload)
+        event('windows.cli.request',action=action,payload=payload,bytes=len(data))
         engine=WindowsSetup()
         action=sys.argv[1]
         methods={"status":engine.status_without_secrets,
@@ -93,16 +101,23 @@ def main():
                  "runtime-recover-key":engine.runtime_recover_key,
                  "verify-remote":engine.verify_remote,
                  "doctor":engine.doctor}
-        if action=="browser-check":
+        if action=="export-diagnostics":
+            result=export_zip(payload.get("destination", ""))
+        elif action=="browser-check":
             browser=payload.get("browser", "chrome")
             result=browser_check(browser)
         else:
             result=methods[action]() if action=="status" else methods[action](payload)
+        event("windows.cli.success",action=action,result=result)
         print(json.dumps({"ok":True,"result":result},ensure_ascii=False))
         return 0
     except (ValueError,OSError,SetupError) as exc:
-        # SetupEngine/RuntimeAutoProvisioner already redact response bodies.
+        log_exception("windows.cli.failure:"+action,exc)
         print(json.dumps({"ok":False,"error":str(exc)},ensure_ascii=False))
+        return 2
+    except Exception as exc:
+        log_exception("windows.cli.unexpected:"+action,exc)
+        print(json.dumps({"ok":False,"error":"Internal onboarding failure; see diagnostics."}))
         return 2
 
 if __name__=="__main__":

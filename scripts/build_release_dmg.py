@@ -63,7 +63,7 @@ SOURCES = {
     "dashboard": ["server.mjs", "mcp-health.mjs", "tunnel-recovery.mjs",
                   "tunnel-health.mjs", "mcp-versions.mjs", "index.html", "style.css", "app.js"],
     "launchers": ["browser.mjs", "tunnel.mjs"],
-    "onboarding": ["cli.py", "setup_engine.py", "browser_compat.py", "runtime_provision.py"],
+    "onboarding": ["cli.py", "setup_engine.py", "browser_compat.py", "runtime_provision.py", "diagnostics.py"],
     "scripts": ["setup_macos.py", "upgrade_runtime.py"],
     "playwright": ["probe.mjs", "restricted-proxy.mjs", "browser-session-manager.mjs", "chrome-profile.mjs", "tab-lease-manager.mjs", "agent-scope.mjs", "portable-tab-identity.mjs", "portable-agent-tabs.mjs", "browser-workspace.mjs", "workspace-response.mjs", "mcp-modern-protocol.mjs", "chatgpt-url.mjs", "action-guard.mjs", "patch-playwright.mjs",
                    "package.json", "package-lock.json", "start.sh", "configure-extension.sh", "try-extension.sh", "start-tunnel.sh"],

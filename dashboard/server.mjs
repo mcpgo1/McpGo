@@ -206,7 +206,7 @@ async function action(group,verb) {
     if(group==='playwright') {
       load(groups[group][0]);
       if(!await waitFor(async()=>job(groups[group][0]).running && await alive(ports.browser),35000))
-        throw Error('Playwright не открыл порт 8931 — проверьте logs/playwright/browser.err.log');
+        throw Error('Playwright не открыл порт 8931 — проверьте ~/Library/Logs/McpGo/com.mcphub.playwright.browser.err.log');
       load(groups[group][1]);
       if(!await waitFor(async()=>job(groups[group][1]).running && await alive(ports.proxy),15000))
         throw Error('MCP proxy не открыл порт 8940 — проверьте logs/playwright/proxy.err.log');

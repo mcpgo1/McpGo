@@ -3,6 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const net=require('node:net');
 const {spawn,spawnSync}=require('node:child_process');
+const {record:diag,register,scrub}=require('./diagnostics.cjs');
 
 const ENDPOINTS=Object.freeze({terminal:12848,browser:8931,proxy:8940,autosend:8972,messaging:8971});
 const CORE_SERVICES=Object.freeze(['terminal','browser','proxy','autosendBrowser','autosend','messaging']);
@@ -66,12 +67,17 @@ class Runtime {
     this.entries=new Map();
     this.running=false;
     this.generation=0;
+    this.lastDiagnosticState='';
   }
   report() {
     const state={};
     for(const name of ['terminal','browser','proxy','autosendBrowser','autosend','messaging','terminalTunnel','browserTunnel']){
       const item=this.entries.get(name);
       state[name]=item?.state||'stopped';
+    }
+    const serialized=JSON.stringify(state);
+    if(serialized!==this.lastDiagnosticState){
+      diag(this.userData,'windows.runtime.state',{state});this.lastDiagnosticState=serialized;
     }
     this.onChange(state);
     return state;
@@ -143,37 +149,102 @@ class Runtime {
     this.entries.set(name,record);
     let p;
     try {
+      diag(this.userData,'windows.runtime.plan.requested',{service:name,attempt:record.attempts});
       p=await this.plan(name);
       if(!this.running||this.entries.get(name)!==record)return;
-      if(!p){record.state='unconfigured';this.report();return}
+      if(!p){record.state='unconfigured';diag(this.userData,'windows.runtime.unconfigured',{service:name});this.report();return}
     }catch(e){
+      diag(this.userData,'windows.runtime.plan.failure',{service:name,error:e.message,stack:e.stack});
       record.state=e.message==='ENOENT'?'waiting':'error: '+e.message;
       this.schedule(name,record);return;
     }
     try{
+      register(p.env); // Keep plaintext credentials in memory for redaction only.
+      diag(this.userData,'windows.runtime.process.launch',{service:name,file:p.file,args:p.args,cwd:p.cwd,
+        envNames:Object.keys(p.env||{}).filter(k=>/^MCPGO_|^CONTROL_|^PLAYWRIGHT_/i.test(k))});
       const child=spawn(p.file,p.args,{cwd:p.cwd,env:p.env,windowsHide:true,detached:true,
-        stdio:['ignore','ignore','pipe']});
+        stdio:['ignore','pipe','pipe']});
       record.child=child;
-      child.stderr.on('data',()=>{}); // do not log tunnel credentials or private output
+      // Decode complete UTF-8 lines before redaction: credential strings may
+      // span operating-system stream chunks. Persist every complete line now,
+      // not only when a long-running service eventually exits.
+      let stdoutBytes=0,stderrBytes=0;
+      const capture=(stream,kind)=>{
+        let pending='',discardingOversizedLine=false,discarded=0;
+        stream.setEncoding('utf8');
+        stream.on('data',chunk=>{
+          const bytes=Buffer.byteLength(chunk);
+          if(kind==='stdout')stdoutBytes+=bytes;else stderrBytes+=bytes;
+          for(const segment of chunk.split(/(?<=\n)/)){
+            if(discardingOversizedLine){
+              discarded+=Buffer.byteLength(segment);
+              if(segment.endsWith('\n')){
+                diag(this.userData,'windows.runtime.process.line.truncated',{
+                  service:name,stream:kind,droppedBytes:discarded});
+                discardingOversizedLine=false;discarded=0;
+              }
+              continue;
+            }
+            pending+=segment;
+            if(pending.length>524288){
+              // Never emit a fragment of an unbounded line: a token could be
+              // split at that boundary and defeat key redaction.
+              discarded=Buffer.byteLength(pending);
+              const lineEnded=pending.endsWith('\n');
+              pending='';discardingOversizedLine=!lineEnded;
+              if(lineEnded){
+                diag(this.userData,'windows.runtime.process.line.truncated',{
+                  service:name,stream:kind,droppedBytes:discarded});
+                discarded=0;
+              }
+              continue;
+            }
+            if(pending.endsWith('\n')){
+              diag(this.userData,'windows.runtime.process.line',{
+                service:name,stream:kind,text:scrub(pending)});
+              pending='';
+            }
+          }
+        });
+        return reason=>{
+          if(pending)diag(this.userData,'windows.runtime.process.line',{
+            service:name,stream:kind,reason,text:scrub(pending)});
+          if(discardingOversizedLine)diag(this.userData,'windows.runtime.process.line.truncated',{
+            service:name,stream:kind,reason,droppedBytes:discarded});
+        };
+      };
+      const flushStdout=capture(child.stdout,'stdout');
+      const flushStderr=capture(child.stderr,'stderr');
+      const flush=(reason)=>{
+        flushStdout(reason);flushStderr(reason);
+        diag(this.userData,'windows.runtime.process.output.summary',{
+          service:name,reason,stdoutBytes,stderrBytes});
+      };
       child.once('spawn',()=>{if(this.entries.get(name)!==record)return;
-        record.state='running';record.startedAt=Date.now();this.report()});
+        record.state='running';record.startedAt=Date.now();
+        diag(this.userData,'windows.runtime.process.started',{service:name,pid:child.pid});this.report()});
       child.once('error',e=>{if(this.entries.get(name)!==record)return;
+        flush('spawn-error');diag(this.userData,'windows.runtime.process.error',{service:name,code:e.code,error:e.message});
         record.state='error: '+(e.code||'SPAWN_FAILED');record.child=null;
         this.schedule(name,record)});
-      child.once('exit',(code)=>{if(this.entries.get(name)!==record)return;
+      child.once('exit',(code,signal)=>{if(this.entries.get(name)!==record)return;
+        flush('exit');diag(this.userData,'windows.runtime.process.exited',{service:name,code,signal});
         record.child=null;record.state='exited: '+String(code);
         if(Date.now()-(record.startedAt||Date.now())>30000)record.attempts=0;
         this.schedule(name,record)});
-    }catch(e){record.state='error: '+e.message;this.schedule(name,record)}
+    }catch(e){diag(this.userData,'windows.runtime.process.exception',{service:name,error:e.message,stack:e.stack});
+      record.state='error: '+e.message;this.schedule(name,record)}
     this.report();
   }
   schedule(name,record){
     if(!this.running||this.entries.get(name)!==record||record.timer)return;
     const wait=Math.min(60000,1500*2**Math.min(record.attempts++,5));
+    diag(this.userData,'windows.runtime.retry.scheduled',{service:name,afterMs:wait,attempt:record.attempts});
     record.timer=setTimeout(()=>this.launch(name),wait);
     this.report();
   }
   async start(){
+    diag(this.userData,'windows.runtime.start');
     if(this.running)return;
     this.running=true;
     const generation=++this.generation;
@@ -201,6 +272,7 @@ class Runtime {
     return this.start();
   }
   stop(){
+    diag(this.userData,'windows.runtime.stop');
     this.running=false;
     this.generation=(this.generation||0)+1;
     if(this.healthTimer)clearTimeout(this.healthTimer);

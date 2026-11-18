@@ -76,6 +76,12 @@ void checkBrowserCompatibility();
 
 
 const wizard=$('wizard-status');
+$('export-diagnostics').onclick=async()=>{
+ try{
+  const result=await window.mcpgo.exportDiagnostics();
+  if(!result?.canceled)wizard.textContent='Диагностика сохранена: '+result.fileName;
+ }catch(e){wizard.textContent='Не удалось экспортировать диагностику: '+e.message}
+};
 async function runWizard(action,data){
  const buttons=[$('create-tunnels'),$('create-runtime')];
  buttons.forEach(b=>b.disabled=true);

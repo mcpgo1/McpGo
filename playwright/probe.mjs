@@ -3,7 +3,17 @@ import {modernHeaders,modernParams,MODERN_PROTOCOL} from './mcp-modern-protocol.
 
 const base = process.env.PLAYWRIGHT_MCP_URL || 'http://127.0.0.1:8931/mcp';
 let sessionId = '';
-const external=new URL(base).port!=='8931';
+// The temporary Chrome Extension trial uses a private Playwright backend on
+// port 8999. Do not mistake it for the public modern MCP proxy just because
+// it is not the regular private port 8931.
+const url=new URL(base);
+const isLoopback=['127.0.0.1','localhost','[::1]'].includes(url.hostname);
+// Accept the fixed onboarding trial port for existing McpGo installations
+// whose setup_engine.py does not yet set the explicit private-backend flag.
+const privateTrial=process.env.PLAYWRIGHT_MCP_PRIVATE_BACKEND==='1'||
+  (isLoopback&&url.port==='8999');
+if(privateTrial&&!isLoopback)throw Error('Private browser backend probe requires loopback URL');
+const external=!privateTrial&&url.port!=='8931';
 const accept = 'application/json, text/event-stream';
 const parse = text => {
   if (!text.trim()) return null;

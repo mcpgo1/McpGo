@@ -1,9 +1,27 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path');
-const {app,BrowserWindow,Tray,Menu,ipcMain,safeStorage,nativeImage,shell}=require('electron');
+const {app,BrowserWindow,Tray,Menu,ipcMain,safeStorage,nativeImage,shell,dialog}=require('electron');
 const {Runtime,assertTunnelId}=require('./runtime.cjs');
 const {localRequest}=require('./local-api.cjs');
 const {onboarding}=require('./onboarding.cjs');
+const {record,register}=require('./diagnostics.cjs');
+function diag(name,details={}){record(app.getPath('userData'),name,details)}
+function importInstallerEvents(){
+ try{
+  const source=path.join(app.getPath('appData'),'McpGo','Onboarding','Logs','installer-events.log');
+  if(!fs.existsSync(source)||fs.lstatSync(source).isSymbolicLink())return;
+  const stats=fs.statSync(source);
+  if(stats.size>32768){diag('windows.installer.events.oversized',{bytes:stats.size});return}
+  const raw=fs.readFileSync(source,'utf8');
+  const known=new Set(['nsis.init','nsis.install.files-copied']);
+  for(const line of raw.split(/\r?\n/)){
+   if(known.has(line.trim()))diag('windows.installer.event',{
+      stage:line.trim(),sourceModifiedAt:stats.mtime.toISOString()});
+  }
+  fs.renameSync(source,source+'.imported');
+ }catch(e){diag('windows.installer.import.failure',{errorType:e.code||e.name})}
+}
+
 const {SettingsStore}=require('./settings.cjs');
 const {checkUpdates,safeReleaseUrl}=require('./updates.cjs');
 const {version:appVersion}=require('../package.json');
@@ -22,6 +40,7 @@ function iconPath(){
  return fs.existsSync(built)?built:path.resolve(__dirname,'../../native/McpGoMark.png');
 }
 function openWindow(){
+ diag('windows.ui.openWindow');
  if(window&&!window.isDestroyed()){window.show();window.focus();return}
  window=new BrowserWindow({width:900,height:690,minWidth:730,minHeight:590,show:false,
  title:'McpGo для Windows',icon:iconPath(),backgroundColor:'#121719',autoHideMenuBar:true,
@@ -35,11 +54,12 @@ function openWindow(){
 }
 ipcMain.handle('mcpgo:status',()=>publicStatus());
 ipcMain.handle('mcpgo:save',async(_event,value)=>{
+ register(value);diag('windows.settings.save.requested',{keys:Object.keys(value||{})});
  const v=await settings.save(value);
  app.setLoginItemSettings({openAtLogin:v.autoStart});
- runtime.browser=v.browser;await runtime.restart();publish();return publicStatus();
+ runtime.browser=v.browser;await runtime.restart();publish();diag('windows.settings.save.success');return publicStatus();
 });
-ipcMain.handle('mcpgo:restart',async()=>{await runtime.restart();publish();return publicStatus()});
+ipcMain.handle('mcpgo:restart',async()=>{diag('windows.runtime.restart.requested');await runtime.restart();publish();return publicStatus()});
 ipcMain.handle('mcpgo:check-updates',()=>checkUpdates(appVersion));
 ipcMain.handle('mcpgo:open-update',(_event,url)=>shell.openExternal(safeReleaseUrl(url)));
 ipcMain.handle('mcpgo:open-releases',()=>shell.openExternal('https://github.com/mcpgo1/McpGo/releases'));
@@ -47,6 +67,7 @@ ipcMain.handle('mcpgo:open-releases',()=>shell.openExternal('https://github.com/
 ipcMain.handle('mcpgo:service-read',(_event,service,route)=>localRequest(service,route,undefined,app.getPath('userData')));
 ipcMain.handle('mcpgo:service-action',(_event,service,route,body)=>localRequest(service,route,body,app.getPath('userData')));
 ipcMain.handle('mcpgo:onboard',async(_event,action,payload)=>{
+ register(payload);diag('windows.ui.onboard.requested',{action,keys:Object.keys(payload||{})});
  if(!['browser-check','provision','runtime-auto','runtime-projects','discover','runtime-inspect','verify-remote'].includes(action))
   throw Error('UNSUPPORTED_ONBOARDING_ACTION');
  if((action==='provision'||action==='runtime-auto')&&payload?.confirmed!==true)
@@ -66,6 +87,7 @@ ipcMain.handle('mcpgo:onboard',async(_event,action,payload)=>{
  }
  const result=await onboarding({action,payload,root,userData:app.getPath('userData'),
   python:path.join(root,'python','python.exe')});
+ diag('windows.ui.onboard.response',{action,result});
  if(action==='runtime-auto'){
   if(typeof result?.runtimeKey!=='string'||!result.runtimeKey.startsWith('sk-'))
    throw Error('RUNTIME_KEY_MISSING');
@@ -76,6 +98,20 @@ ipcMain.handle('mcpgo:onboard',async(_event,action,payload)=>{
  }
  return result;
 });
+ipcMain.handle('mcpgo:export-diagnostics',async()=>{
+ diag('windows.ui.export.clicked');
+ const selected=await dialog.showSaveDialog(window||undefined,{
+  title:'Экспортировать диагностику первого подключения',
+  defaultPath:'mcpgo-onboarding-diagnostics-'+new Date().toISOString().slice(0,10)+'.zip',
+  filters:[{name:'ZIP diagnostics',extensions:['zip']}],
+ });
+ if(selected.canceled||!selected.filePath)return {canceled:true};
+ const result=await onboarding({action:'export-diagnostics',payload:{destination:selected.filePath},
+   root:runtime.resourceRoot,userData:app.getPath('userData'),
+   python:path.join(runtime.resourceRoot,'python','python.exe')});
+ diag('windows.ui.export.finished',{fileName:path.basename(selected.filePath)});
+ return result;
+});
 ipcMain.handle('mcpgo:extension-store',()=>shell.openExternal('https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm'));
 ipcMain.handle('mcpgo:browser-update',(_event,browser)=>{
  const urls={chrome:'https://www.google.com/chrome/',msedge:'https://www.microsoft.com/edge'};
@@ -84,8 +120,10 @@ ipcMain.handle('mcpgo:browser-update',(_event,browser)=>{
 });
 app.on('second-instance',openWindow);
 app.on('window-all-closed',()=>{}); // Closing the window keeps the tray agent alive.
-app.on('before-quit',()=>{quitting=true;runtime?.stop()});
+app.on('before-quit',()=>{diag('windows.app.beforeQuit');quitting=true;runtime?.stop()});
 app.whenReady().then(async()=>{
+ importInstallerEvents();
+ diag('windows.app.ready',{version:appVersion,platform:process.platform,arch:process.arch,appPath:app.getAppPath(),userData:app.getPath('userData'),packaged:app.isPackaged});
  const root=app.isPackaged?path.join(process.resourcesPath,'mcpgo-runtime'):path.resolve(__dirname,'../..');
  runtime=new Runtime({resourceRoot:root,userData:app.getPath('userData'),
  nodeExecutable:app.isPackaged?path.join(root,'node','node.exe'):
@@ -100,5 +138,5 @@ app.whenReady().then(async()=>{
  {type:'separator'},{label:'Выход',click:()=>{quitting=true;app.quit()}}
  ]));
  tray.on('double-click',openWindow);
- await runtime.start();publish();
-}).catch(e=>{console.error('Startup error:',e.message);app.quit()});
+ diag('windows.runtime.start.requested');await runtime.start();publish();diag('windows.runtime.start.complete',{state:runtime.state()});
+}).catch(e=>{diag('windows.app.startup.failure',{errorType:e?.name,error:e?.message,stack:e?.stack});console.error('Startup error:',e.message);app.quit()});
