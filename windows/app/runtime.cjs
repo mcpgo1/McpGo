@@ -79,6 +79,32 @@ function listening(port,timeout=900) {
     socket.setTimeout(timeout,()=>done(false));
   });
 }
+// Record fixed milestones only; never browser content, URLs or credentials.
+function runBrowserProbe(plan,timeout=120000){
+ return new Promise(resolve=>{
+  const started=Date.now(),phases=new Set();
+  let child,timer,tail='',done=false;
+  const finish=(reason,code=null,signal=null)=>{
+   if(done)return;done=true;clearTimeout(timer);
+   resolve({ok:reason==='exit'&&code===0&&phases.has('MCP_CONNECTIVITY_PROBE=PASS'),
+    reason,code,signal,phases:[...phases],durationMs:Date.now()-started});
+  };
+  try{child=spawn(plan.file,plan.args,{cwd:plan.cwd,env:plan.env,windowsHide:true,stdio:['ignore','pipe','ignore']})}
+  catch{return finish('spawn')}
+  const parse=line=>{
+   if(/^(MCP_2026_DISCOVER|PRIVATE_PLAYWRIGHT_INITIALIZE|TOOL_DISCOVERY|UNSAFE_TOOL_FILTER|CHROME_CDP_TABS|MCP_CONNECTIVITY_PROBE)=PASS$/.test(line))phases.add(line);
+  };
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data',chunk=>{
+   const lines=(tail+chunk).split(/\r?\n/);
+   tail=(lines.pop()||'').slice(-128);
+   for(const line of lines)parse(line);
+  });
+  timer=setTimeout(()=>{finish('timeout');child.kill()},timeout);
+  child.once('error',()=>finish('spawn'));
+  child.once('close',(code,signal)=>{parse(tail);finish('exit',code,signal)});
+ });
+}
 const mcpReady=connectionHealth.probeMcp;
 async function tunnelReady(file,fetchImpl=fetch){
   return (await connectionHealth.tunnelHealth(file,fetchImpl))==='ready';
@@ -152,24 +178,30 @@ class Runtime {
   }
   async verifyBrowserConnection(force=false){
     if(this.browserProbe)return this.browserProbe;
-    const entry=this.entries.get('browser'),pid=entry?.child?.pid;
-    if(!pid||!this.readiness.browserMcp)return false;
-    if(!force&&this.browserProbePid===pid)return this.readiness.chrome===true;
     const generation=this.generation;
-    this.browserProbePid=pid;
     const task=(async()=>{
+      // The wizard may verify immediately after saving/restarting, before the
+      // first health pump has observed both browser and proxy listeners.
+      if(force){
+        const until=Date.now()+15000;
+        while(this.running&&generation===this.generation&&Date.now()<until&&
+          (!this.entries.get('browser')?.child?.pid||!this.readiness.browserMcp))
+          await new Promise(resolve=>setTimeout(resolve,200));
+      }
+      const pid=this.entries.get('browser')?.child?.pid;
+      if(generation!==this.generation||!pid||!this.readiness.browserMcp){
+        diag(this.userData,'windows.runtime.extension.probe.deferred',{reason:'LOCAL_MCP_NOT_READY'});
+        return false;
+      }
+      if(!force&&this.browserProbePid===pid&&this.readiness.chrome===true)return true;
+      this.browserProbePid=pid;
       const probe=path.join(this.resourceRoot,'playwright','probe.mjs');
       const plan=this.node(probe,[],{PLAYWRIGHT_MCP_URL:'http://127.0.0.1:8940/mcp',
         PLAYWRIGHT_MCP_PRIVATE_BACKEND:'0',PLAYWRIGHT_MCP_VERIFY_TABS:'1',PLAYWRIGHT_MCP_REJECT_UNSAFE:'1'});
       delete plan.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN;
-      const ok=await new Promise(resolve=>{
-        let child;
-        try{child=spawn(plan.file,plan.args,{cwd:plan.cwd,env:plan.env,windowsHide:true,stdio:'ignore'})}
-        catch{return resolve(false)}
-        const timer=setTimeout(()=>{child.kill();resolve(false)},45000);
-        child.once('error',()=>{clearTimeout(timer);resolve(false)});
-        child.once('exit',code=>{clearTimeout(timer);resolve(code===0)});
-      });
+      const evidence=await runBrowserProbe(plan);
+      const ok=evidence.ok;
+      diag(this.userData,'windows.runtime.extension.probe',evidence);
       if(generation===this.generation&&this.entries.get('browser')?.child?.pid===pid){
         const bh=await connectionHealth.readTelemetry('http://127.0.0.1:8940/healthz');
         if(generation===this.generation&&this.entries.get('browser')?.child?.pid===pid){
@@ -178,7 +210,7 @@ class Runtime {
           this.readiness.chrome=ok;diag(this.userData,'windows.runtime.extension.readiness',{ready:ok});this.report();
         }
       }
-      return ok;
+      return ok&&generation===this.generation&&this.entries.get('browser')?.child?.pid===pid;
     })();
     this.browserProbe=task;
     try{return await task}finally{if(this.browserProbe===task)this.browserProbe=null}
@@ -210,13 +242,9 @@ class Runtime {
       const check=this.node(probe,[],{PLAYWRIGHT_MCP_URL:'http://127.0.0.1:8999/mcp',
         PLAYWRIGHT_MCP_PRIVATE_BACKEND:'1',PLAYWRIGHT_MCP_VERIFY_TABS:'1',PLAYWRIGHT_MCP_REJECT_UNSAFE:'0'});
       delete check.env.PLAYWRIGHT_MCP_EXTENSION_TOKEN;
-      const ok=await new Promise(resolve=>{
-        const child=spawn(check.file,check.args,{cwd:check.cwd,env:check.env,windowsHide:true,stdio:'ignore'});
-        const timer=setTimeout(()=>{child.kill();resolve(false)},45000);
-        child.once('error',()=>{clearTimeout(timer);resolve(false)});
-        child.once('exit',code=>{clearTimeout(timer);resolve(code===0)});
-      });
-      if(!ok||failed||trial.exitCode!==null)throw Error('EXTENSION_TRIAL_REJECTED');
+      const evidence=await runBrowserProbe(check);
+      diag(this.userData,'windows.extension.trial.probe',{browser,...evidence,trialExitCode:trial.exitCode,trialFailed:failed});
+      if(!evidence.ok||failed||trial.exitCode!==null)throw Error('EXTENSION_TRIAL_REJECTED');
       diag(this.userData,'windows.extension.trial.verified',{browser});
       return true;
     }finally{if(trial.exitCode===null)trial.kill()}
@@ -496,4 +524,4 @@ class Runtime {
     this.report();
   }
 }
-module.exports={mcpReady,tunnelReady,extensionProfile,Runtime,assertTunnelId,clientArgs,terminalEndpoint,runtimePaths,listening,killOwnedTree,CORE_SERVICES};
+module.exports={runBrowserProbe,mcpReady,tunnelReady,extensionProfile,Runtime,assertTunnelId,clientArgs,terminalEndpoint,runtimePaths,listening,killOwnedTree,CORE_SERVICES};

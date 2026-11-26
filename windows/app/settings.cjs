@@ -126,4 +126,9 @@ class SettingsStore {
   return this.public();
  }
 }
-module.exports={SettingsStore};
+// Auto-start is handled by Electron, and does not change an MCP runtime.
+function runtimeConfigChanged(before,after){
+ const comparable=c=>JSON.stringify([c.browser||'chrome',c.terminal||null,c.browserTunnel||null,c.playwrightExtension||null]);
+ return comparable(before)!==comparable(after);
+}
+module.exports={SettingsStore,runtimeConfigChanged};

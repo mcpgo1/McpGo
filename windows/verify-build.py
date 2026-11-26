@@ -73,7 +73,8 @@ def main():
                       "node_modules/@playwright/mcp/cli.js",
                       "node_modules/playwright-core/lib/coreBundle.js"],
         "node":["node.exe"],
-        "python":["python.exe","python312.dll","python312.zip","_ssl.pyd","_sqlite3.pyd"],
+        "python":["python.exe","python312.dll","python3.dll","python312.zip","python312._pth",
+                  "vcruntime140.dll","vcruntime140_1.dll","_ssl.pyd","_sqlite3.pyd","_ctypes.pyd"],
         "tunnel":["tunnel-client.exe"],
         "pty":["node_modules/@lydell/node-pty/index.js",
                "node_modules/@lydell/node-pty-win32-x64/package.json"],
@@ -87,6 +88,8 @@ def main():
     check_pe(base/"McpGo.exe")
     for name in ("node/node.exe","python/python.exe","tunnel/tunnel-client.exe"):
         check_pe(runtime/name)
+    for file in (runtime/"python").iterdir():
+        if file.suffix.lower() in (".exe",".dll",".pyd"):check_pe(file)
     for file in runtime.rglob("*"):
         if not file.is_file():continue
         forbidden={"settings.json","config.json","stateless-config.json",

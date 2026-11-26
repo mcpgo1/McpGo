@@ -24,7 +24,7 @@ function importInstallerEvents(){
  }catch(e){diag('windows.installer.import.failure',{errorType:e.code||e.name})}
 }
 
-const {SettingsStore}=require('./settings.cjs');
+const {SettingsStore,runtimeConfigChanged}=require('./settings.cjs');
 const {checkUpdates,safeReleaseUrl}=require('./updates.cjs');
 const {version:appVersion}=require('../package.json');
 if(process.platform!=='win32')throw Error('Windows only');
@@ -81,15 +81,28 @@ ipcMain.handle('mcpgo:save',(_event,value)=>{
  const action=settingsSaveTail.then(async()=>{
 
  register(value);diag('windows.settings.save.requested',{keys:Object.keys(value||{})});
+ const before=settings.load();
  const rawToken=value?.playwrightExtension?.token;
  if(typeof rawToken==='string'&&rawToken.trim()){
   const token=rawToken.trim().replace(/^PLAYWRIGHT_MCP_EXTENSION_TOKEN=/,'');
-  try{await runtime.verifyExtension(token,value.browser||runtime.browser)}
-  catch(e){diag('windows.extension.trial.failed',{code:e.message});throw e}
+  try{
+   const browser=value.browser||runtime.browser;
+   // Avoid a second competing extension session for the same saved credential.
+   const existing=await settings.extensionToken().catch(()=>null);
+   const live=existing?.token===token&&browser===runtime.browser&&await runtime.verifyBrowserConnection(true);
+   if(!live)await runtime.verifyExtension(token,browser);
+   else {
+    diag('windows.extension.trial.reused',{browser});
+    if(value.playwrightExtension.remove!==true)value={...value,playwrightExtension:undefined};
+   }
+  }catch(e){diag('windows.extension.trial.failed',{code:e.message});throw e}
  }
  const v=await settings.save(value);
  app.setLoginItemSettings({openAtLogin:v.autoStart});
- runtime.browser=v.browser;await runtime.restart();publish();diag('windows.settings.save.success');return publicStatus();
+ const restartNeeded=!runtime.running||runtimeConfigChanged(before,settings.load());
+ runtime.browser=v.browser;
+ if(restartNeeded)await runtime.restart();
+ publish();diag('windows.settings.save.success',{restartNeeded});return publicStatus();
  });
  settingsSaveTail=action.catch(()=>{});
  return action;
